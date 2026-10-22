@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "hotcell_remote/gateway"
+require "hot_cell/remote/gateway"
 require "rack/mock_request"
 
 class GatewayTest < ActiveSupport::TestCase
   def gateway(secret: nil)
-    Rack::MockRequest.new(HotcellRemote::Gateway.new(HotCell::Cell.new("cell", dir: "/nonexistent"), secret:))
+    Rack::MockRequest.new(HotCell::Remote::Gateway.new(HotCell::Cell.new("cell", dir: "/nonexistent"), secret:))
   end
 
   test "answers health checks without the secret" do

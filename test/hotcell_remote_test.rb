@@ -3,7 +3,7 @@
 require "test_helper"
 
 # In test, requests run in process, through the same Hot Cell clients and codes as the service.
-class HotcellRemoteTest < ActiveSupport::TestCase
+class HotCellRemoteTest < ActiveSupport::TestCase
   test "runs an operation that writes an output" do
     with_files do |input, output, output_path|
       assert_equal({ times: 2 }, client("text", "text.reverse").perform_in_hotcell(input, output, { times: 2 }))
