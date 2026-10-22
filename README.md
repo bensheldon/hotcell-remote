@@ -8,7 +8,7 @@ workers with memory and time limits, no network, and no credentials. It passes f
 socket, so the cell must share a host and a volume with the application.
 
 Hot Cell Remote puts an HTTP API in front of a cell, so the cell can be its own service: in a different task, on a
-different host, behind its own firewall rules, with nothing the application holds.
+different host, behind its own firewall rules, and without any of the secrets that the application holds.
 
 ```
   Rails application                              hotcell-remote service
@@ -24,8 +24,8 @@ isolation**, and by default the engine allows it only in development and test.
 
 ## Installation
 
-Hot Cell Remote is a Rails engine. Put it, and the gems your operations need, in a `hotcell` Gemfile group that
-the application shares with the service, and put the Hot Cell gems in that group only:
+Hot Cell Remote is a Rails engine. Put it in a `hotcell` Gemfile group that the application shares with the service,
+along with the gems that your operations need. The Hot Cell gems go in that group only:
 
 ```ruby
 # Gemfile
@@ -33,7 +33,7 @@ group :default, :hotcell do
   gem "hotcell-remote", github: "bensheldon/hotcell-remote"
   gem "puma"
 
-  # What your operations use, for example:
+  # Gems that your operations use, for example:
   gem "image_processing"
   gem "ruby-vips"
 end
@@ -107,8 +107,8 @@ response.result                                          # => { "content_type" =
 - `perform(input, output, **payload)` does the work. `input` and `output` are **paths**, so the operation runs the
   same in process and in a cell, where they're `/dev/fd/N` paths to the caller's descriptors. Return a Hash; it
   travels as JSON.
-- The payload arrives as keyword arguments. Declare the ones you accept: the gateway rejects a missing or unknown
-  keyword before it dispatches the operation. Payloads and results are JSON, so keys come back as strings and
+- The payload arrives as keyword arguments. Declare the ones that the operation accepts, because the gateway rejects a
+  missing or unknown keyword before it dispatches the operation. Payloads and results are JSON, so keys come back as strings and
   symbols as strings.
 - `result_only` declares that the operation writes no file. Hot Cell treats an empty output as a failure, so an
   operation that writes nothing must declare it.
@@ -119,7 +119,7 @@ response.result                                          # => { "content_type" =
   the file's path, and it's copied to `output`.
 - Raise `HotcellRemote::UnreadableInput` when the input can't be decoded, for example from a library's own error.
 
-Shell out with `run` rather than `system` or backticks: in a cell, a subprocess started any other way can't open
+Shell out with `run` rather than `system` or backticks. In a cell, a subprocess that starts any other way can't open
 the input's path.
 
 ### Errors
@@ -135,14 +135,14 @@ Let Active Job retry transient errors, and discard or record permanent ones.
 ### Testing
 
 In development and test, operations run in process, through the same gateway, so test them through
-`HotcellRemote.perform` with real fixture files. Install the tools they use on development machines and CI.
+`HotcellRemote.perform` with real fixture files. Install the tools that they use on development machines and in CI.
 
 ## Configuration
 
 | Setting | Default | Description |
 | --- | --- | --- |
 | `config.hotcell_remote.url` | `ENV["HOTCELL_REMOTE_URL"]` | The service's gateway. When it's set, calls go there. |
-| `config.hotcell_remote.access_secret` | `ENV["HOTCELL_ACCESS_SECRET"]` | A shared secret the application sends as `Authorization: Bearer …`. |
+| `config.hotcell_remote.access_secret` | `ENV["HOTCELL_ACCESS_SECRET"]` | A shared secret that the application sends as `Authorization: Bearer …`. |
 | `config.hotcell_remote.allow_inline` | `true` in development and test | Whether to run operations in process, with no isolation, when there's no URL. Otherwise a call raises `HotcellRemote::ConfigurationError`. |
 | `config.hotcell_remote.operations_path` | `hotcell/operations` | The directory of operation files. |
 | `config.hotcell_remote.active_storage` | none | Classes to install in Active Storage. See below. |
@@ -188,8 +188,8 @@ hotcell/
 docker build -f hotcell/Dockerfile -t hotcell-remote .
 ```
 
-The image installs the tools your operations use and the `hotcell` group from your `Gemfile.lock`. Build it from
-the application's root so it can read the lockfile.
+The image installs the tools that your operations use, and the `hotcell` group from your `Gemfile.lock`. Build it
+from the application's root so that it can read the lockfile.
 
 ### Two containers
 
@@ -205,10 +205,10 @@ Run the image as two containers that share a volume at `/run/hotcell`:
 - Health checks: the image's `HEALTHCHECK` probes the cell, and the gateway answers `GET /up`.
 - Give both containers a read-only root filesystem, drop every Linux capability, and set no secrets. Hot Cell's
   [container settings](https://basecamp.github.io/hotcell/container/) describe the rest.
-- The cell sweeps its temporary directory when it boots, removing everything its user owns there. When no
-  `TMPDIR` is set, `hotcell_remote/cell` gives the cell a new directory of its own, so a cell run outside its own
-  container can't sweep a shared `/tmp`. If you set `TMPDIR`, use a directory only the cell uses, and keep the
-  socket directory outside it.
+- When the cell boots, it sweeps its temporary directory and removes everything that its user owns there. If
+  `TMPDIR` isn't set, `hotcell_remote/cell` gives the cell a new directory of its own, so that a cell which runs
+  outside its own container can't sweep a shared `/tmp`. If you do set `TMPDIR`, choose a directory that only the
+  cell uses, and keep the socket directory outside it.
 - Set `concurrency`, `memory`, and `deadline` in `config.rb`, and match `OMP_NUM_THREADS` to the cell's CPUs.
 
 Then point the application at the gateway:
@@ -227,8 +227,8 @@ removes the cell's network. Where you can, do that too: with Kamal or Docker, gi
 On AWS ECS Fargate, every container in a task shares one network namespace, so the cell can't have its own.
 Isolate the whole task instead:
 
-- A security group that allows ingress on `8080` from the application only, and **no egress** except the VPC
-  endpoints Fargate needs: ECR (`ecr.api`, `ecr.dkr`), S3 (for image layers), and CloudWatch Logs.
+- A security group that allows ingress on `8080` from the application only, and **no egress** except to the VPC
+  endpoints that Fargate needs: ECR (`ecr.api`, `ecr.dkr`), S3 (for image layers), and CloudWatch Logs.
 - **No task role**, so the credentials endpoint has nothing to give. Its execution role needs no secrets.
 - A private address, through Service Connect or Cloud Map, rather than a public load balancer.
 - Fargate doesn't let you set `kernel.yama.ptrace_scope`, so the cell logs `cell.ptrace_scope_unknown` and boots
