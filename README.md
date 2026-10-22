@@ -161,11 +161,30 @@ analyzer, and a PDF previewer for the operations in
 
 ## Deploying the service
 
+The service lives in your application's repository, in a `hotcell/` directory, but it isn't a copy of your
+application. Its image is built from the repository so that it can share your `Gemfile.lock`, and then it takes
+only what the service needs:
+
+| In the service's image | Not in the service's image |
+| --- | --- |
+| Ruby, and the tools that your operations run, such as libvips or poppler | Your application's code: `app/`, `config/`, `lib/` |
+| The gems in the `hotcell` group: Hot Cell Remote, the Hot Cell gems, Puma, and the gems that your operations use | Rails, and every gem outside the `hotcell` group |
+| `hotcell/`: your operations, the cell's `config.rb`, and the gateway's `config.ru` | Your application's credentials, secrets, and database access |
+
+The Dockerfile copies the whole `Gemfile` and `Gemfile.lock`, which list every gem that your application uses,
+but Bundler installs only the `hotcell` group (`BUNDLE_ONLY=hotcell`). Sharing one lockfile keeps the service's
+copy of Hot Cell Remote at the same version as the application's, so the two sides of the HTTP API always agree,
+and it means that one `bundle update` updates both. `Dockerfile.dockerignore` limits the build to `.ruby-version`,
+the Gemfile and lockfile, and `hotcell/`, so nothing else from the repository reaches the image.
+
+The service runs as two processes from that image, the gateway and the cell, which are described under
+[Two containers](#two-containers). Neither one loads Rails.
+
 [`examples/hotcell`](examples/hotcell) has everything below. Copy it to `hotcell/` in your application.
 
 ```
 hotcell/
-  operations/            # your operations, loaded by the application and the cell
+  operations/            # your operations, which the service loads
   config.rb              # the cell's limits; requires hotcell_remote/cell
   config.ru              # the gateway
   Dockerfile             # one image for both containers; build it from the application's root
@@ -178,8 +197,7 @@ hotcell/
 docker build -f hotcell/Dockerfile -t hotcell-remote .
 ```
 
-The image installs the tools that your operations use, and the `hotcell` group from your `Gemfile.lock`. Build it
-from the application's root so that it can read the lockfile.
+Run the build from the application's root, because the image needs the root's `Gemfile.lock`.
 
 ### Two containers
 
