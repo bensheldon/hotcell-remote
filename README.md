@@ -1,33 +1,26 @@
 # Hot Cell Remote
 
-Run operations on untrusted files — PDFs, images, anything a C library has to parse — from a Rails application,
-either in the application's process or in a separate, isolated service.
+Run operations on untrusted files — PDFs, images, anything a C library has to parse — in an isolated service that
+a Rails application calls over the network.
 
 [Hot Cell](https://github.com/basecamp/hotcell) runs untrusted work in an unprivileged sibling container: forked
 workers with memory and time limits, no network, and no credentials. It passes files as descriptors over a UNIX
 socket, so the cell must share a host and a volume with the application.
 
 Hot Cell Remote puts an HTTP API in front of a cell, so the cell can be its own service: in a different task, on a
-different host, behind its own firewall rules. The same API also runs inside the application's process, so you can
-write and ship operations before you deploy the service, and develop and test without running it at all.
+different host, behind its own firewall rules, with nothing the application holds.
 
 ```
-                         HotcellRemote.perform("pdf.info", file)
-                                          │
-              ┌─────────── in process ────┴──── remote (HOTCELL_REMOTE_URL) ───┐
-              ▼                                                                ▼
-        Gateway (Rack)                                                   HTTP → Gateway (Rack)
-              │                                                                │
-       Inline executor                                                  HotCell executor
-     (no isolation: runs                                          (UNIX socket, descriptors)
-      the operation here)                                                      │
-                                                                       Hot Cell → forked worker
-                                                                               │
-                                                                           operation
+  Rails application                              hotcell-remote service
+  ─────────────────                              ──────────────────────────────────────────────
+  HotcellRemote.perform("pdf.info", file)  ──HTTP──▶  Gateway ──UNIX socket──▶ Hot Cell
+                                                      (Rack)    (descriptors)   └─ forked worker
+                                                                                     └─ operation
 ```
 
-In process, operations run with **no isolation**. It's a stepping stone: the code paths, the API, and the errors
-are the same, so moving to the remote service is a configuration change.
+For development and test, the same gateway can run inside the application's process, so you don't have to run
+the service to work on the application. That's for parity only: in process, operations run with **no
+isolation**, and by default the engine allows it only in development and test.
 
 ## Installation
 
@@ -141,8 +134,8 @@ Let Active Job retry transient errors, and discard or record permanent ones.
 
 ### Testing
 
-Operations run in process in development and test, so test them through `HotcellRemote.perform` with real
-fixture files. Install the tools they use on development machines and CI.
+In development and test, operations run in process, through the same gateway, so test them through
+`HotcellRemote.perform` with real fixture files. Install the tools they use on development machines and CI.
 
 ## Configuration
 
@@ -150,16 +143,12 @@ fixture files. Install the tools they use on development machines and CI.
 | --- | --- | --- |
 | `config.hotcell_remote.url` | `ENV["HOTCELL_REMOTE_URL"]` | The service's gateway. When it's set, calls go there. |
 | `config.hotcell_remote.access_secret` | `ENV["HOTCELL_ACCESS_SECRET"]` | A shared secret the application sends as `Authorization: Bearer …`. |
-| `config.hotcell_remote.allow_inline` | `true` in development and test | Whether to run operations in process when there's no URL. Otherwise a call raises `HotcellRemote::ConfigurationError`. |
+| `config.hotcell_remote.allow_inline` | `true` in development and test | Whether to run operations in process, with no isolation, when there's no URL. Otherwise a call raises `HotcellRemote::ConfigurationError`. |
 | `config.hotcell_remote.operations_path` | `hotcell/operations` | The directory of operation files. |
 | `config.hotcell_remote.active_storage` | none | Classes to install in Active Storage. See below. |
 
-To run in process in production before the service exists, opt in:
-
-```ruby
-# config/environments/production.rb
-config.hotcell_remote.allow_inline = true
-```
+In production, set `url`. Don't turn on `allow_inline` there: it runs untrusted parsing in the application's
+process, which is what this gem exists to prevent.
 
 ## Active Storage
 

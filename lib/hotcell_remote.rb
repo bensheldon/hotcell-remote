@@ -3,8 +3,8 @@
 require "json"
 require "hotcell_remote/version"
 
-# Runs operations on untrusted files. In production the work happens in a separate service whose
-# gateway hands each request to a Hot Cell; without a URL, the same gateway can run in process.
+# Runs operations on untrusted files in a separate service, whose gateway hands each request to a Hot Cell.
+# For development and test, the same gateway can run in process, with no isolation.
 module HotcellRemote
   class Error < StandardError; end
 
