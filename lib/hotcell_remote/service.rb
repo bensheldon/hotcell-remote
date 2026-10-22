@@ -21,12 +21,13 @@ module HotcellRemote
     class << self
       attr_reader :cell_pid
 
-      # Starts the cell and returns the gateway, a Rack app that passes each request to it.
-      def gateway
+      # Starts the cell and returns the gateway, a Rack app that passes each request to it. Requests must send
+      # +secret+ unless it's nil.
+      def gateway(secret:)
         sockets = start_cell
         cell = HotCell::Cell.new("cell", dir: sockets, timeout: 120)
 
-        Gateway.new(cell, secret: ENV.fetch("HOTCELL_REMOTE_SECRET", nil))
+        Gateway.new(cell, secret:)
       end
 
       def stop

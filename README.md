@@ -109,12 +109,15 @@ Cell's own: `HotCell::PermanentFailure` when retrying won't help, such as an unr
 `HotCell::TransientFailure` when it may, such as an unreachable or busy service. Let Active Job retry transient
 failures, and discard or record permanent ones.
 
-## Configuration
+## Application settings
+
+These configure the Rails application. The service has no settings of its own except its secret, which
+[`config.ru`](#deploying-the-service) passes in.
 
 | Setting | Default | Description |
 | --- | --- | --- |
 | `config.hotcell_remote.url` | `ENV["HOTCELL_REMOTE_URL"]` | The service's URL. |
-| `config.hotcell_remote.secret` | `ENV["HOTCELL_REMOTE_SECRET"]` | A shared secret that the application sends as `Authorization: Bearer …`. |
+| `config.hotcell_remote.secret` | `ENV["HOTCELL_REMOTE_SECRET"]` | The shared secret that the application sends as `Authorization: Bearer …`. It must match the service's. |
 | `config.hotcell_remote.operations_path` | `hotcell/operations` | The directory of operation files, for [development and test parity](#development-and-test-parity). |
 | `config.hotcell_remote.active_storage` | none | Classes to install in Active Storage. See below. |
 
@@ -167,12 +170,12 @@ hotcell/
   Dockerfile.dockerignore
 ```
 
-`config.ru` is two lines:
+`config.ru` starts the service, and passes it the secret from the service's environment:
 
 ```ruby
 require "hotcell_remote/service"
 
-run HotcellRemote::Service.gateway
+run HotcellRemote::Service.gateway(secret: ENV.fetch("HOTCELL_REMOTE_SECRET"))
 ```
 
 ### How the service runs
@@ -246,7 +249,7 @@ least:
 ### The secret
 
 The service is reachable over the network, so set `HOTCELL_REMOTE_SECRET` on both the application and the
-service. The gateway compares it in constant time and refuses any request without it, except `GET /up`. Keep the
+service. `config.ru` reads it with `ENV.fetch`, so the service won't start without it. The gateway compares it in constant time and refuses any request without it, except `GET /up`. Keep the
 service private where your platform allows it, too: on Heroku, its URL is public.
 
 ## The HTTP API

@@ -2,4 +2,5 @@
 
 require "hotcell_remote/service"
 
-run HotcellRemote::Service.gateway
+# Every request must send this secret, which the application sends from its own HOTCELL_REMOTE_SECRET.
+run HotcellRemote::Service.gateway(secret: ENV.fetch("HOTCELL_REMOTE_SECRET"))

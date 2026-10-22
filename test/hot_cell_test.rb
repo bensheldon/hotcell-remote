@@ -16,10 +16,8 @@ class HotCellTest < ActiveSupport::TestCase
 
     original = ENV.fetch("HOTCELL_OPERATIONS", nil)
     ENV["HOTCELL_OPERATIONS"] = File.expand_path("fixtures/operations", __dir__)
-    ENV["HOTCELL_REMOTE_SECRET"] = "s3cret"
-    gateway = HotcellRemote::Service.gateway
+    gateway = HotcellRemote::Service.gateway(secret: "s3cret")
     ENV["HOTCELL_OPERATIONS"] = original
-    ENV.delete("HOTCELL_REMOTE_SECRET")
 
     @server = Puma::Server.new(gateway, nil, min_threads: 1, max_threads: 2, log_writer: Puma::LogWriter.null)
     url = "http://127.0.0.1:#{@server.add_tcp_listener('127.0.0.1', 0).addr[1]}"
