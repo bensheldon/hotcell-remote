@@ -159,7 +159,7 @@ The service reads your whole `Gemfile` and `Gemfile.lock`, which list every gem 
 Bundler installs only the `hotcell` group (`BUNDLE_ONLY=hotcell`). Sharing one lockfile keeps the two sides on
 the same versions of Hot Cell and Hot Cell Remote, and it means that one `bundle update` updates both.
 
-Hot Cell Remote configures the service by convention, so `hotcell/` holds only what's yours. Copy it from the
+Hot Cell Remote configures the service by convention, so `hotcell/` holds only what you've added. Copy it from the
 example application's [`hotcell/`](examples/rails_app/hotcell):
 
 ```
