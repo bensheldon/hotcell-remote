@@ -3,19 +3,23 @@
 Run [Hot Cell](https://github.com/basecamp/hotcell) as a network service — not a sidecar — to run operations on
 untrusted files.
 
-[Hot Cell](https://github.com/basecamp/hotcell) runs untrusted work in an unprivileged sibling container: forked
-workers with memory and time limits, no network, and no credentials. It passes files as descriptors over a UNIX
-socket, so the cell must share a host and a volume with the application.
+[Hot Cell](https://github.com/basecamp/hotcell) runs untrusted work in an unprivileged sibling container on the
+same host as the application, which passes it file descriptors over a UNIX socket on a shared volume. Hot Cell
+Remote instead runs the cell inside a small service of its own, with an HTTP gateway in front of it. The
+application sends each file to the service and gets the result back.
 
-Hot Cell Remote puts an HTTP API in front of a cell, so the cell can be its own service: in a different task, on a
-different host, behind its own firewall rules, and without any of the secrets that the application holds.
+The goal is operational simplicity: the service deploys as one unit, such as a Heroku dyno or a single
+container, with no sidecars, shared volumes, or special container settings. It still isolates the parsing of
+untrusted files from your application: the service has none of your application's code, secrets, credentials,
+or database access. It gives up some of the protections of Hot Cell's own deployment, which are described under
+[What the service gives up](#what-the-service-gives-up).
 
 ```
-  Rails application                              hotcell-remote service
-  ─────────────────                              ──────────────────────────────────────────────
-  HotcellRemote.perform("pdf.info", file)  ──HTTP──▶  Gateway ──UNIX socket──▶ Hot Cell
-                                                      (Rack)    (descriptors)   └─ forked worker
-                                                                                     └─ operation
+  Rails application                            hotcell-remote service (one dyno or container)
+  ─────────────────                            ───────────────────────────────────────────────────
+  HotcellRemote.perform("pdf.info", file)  ──HTTP──▶  Gateway (Puma) ──UNIX socket──▶ Hot Cell
+                                                                                    └─ forked worker
+                                                                                        └─ operation
 ```
 
 [`examples/rails_app`](examples/rails_app) is a minimal Rails application that has every piece below in its
@@ -168,36 +172,31 @@ application.
 ## Deploying the service
 
 The service lives in your application's repository, in a `hotcell/` directory, but it isn't a copy of your
-application. Its image is built from the repository so that it can share your `Gemfile.lock`, and then it takes
-only what the service needs:
+application. It shares your `Gemfile.lock`, and takes only what the service needs:
 
-| In the service's image | Not in the service's image |
+| In the service | Not in the service |
 | --- | --- |
 | Ruby, and the tools that your operations run, such as libvips or poppler | Your application's code: `app/`, `config/`, `lib/` |
 | The gems in the `hotcell` group: Hot Cell Remote, the Hot Cell gems, Puma, and the gems that your operations use | Rails, and every gem outside the `hotcell` group |
-| `hotcell/`: your operations and the gateway's `config.ru` | Your application's credentials, secrets, and database access |
+| `hotcell/`: your operations and the service's `config.ru` | Your application's credentials, secrets, and database access |
 
-The Dockerfile copies the whole `Gemfile` and `Gemfile.lock`, which list every gem that your application uses,
+The service installs your whole `Gemfile` and `Gemfile.lock`, which list every gem that your application uses,
 but Bundler installs only the `hotcell` group (`BUNDLE_ONLY=hotcell`). Sharing one lockfile keeps the service's
 copy of Hot Cell Remote at the same version as the application's, so the two sides of the HTTP API always agree,
-and it means that one `bundle update` updates both. `Dockerfile.dockerignore` limits the build to `.ruby-version`,
-the Gemfile and lockfile, and `hotcell/`, so nothing else from the repository reaches the image.
-
-The service runs as two processes from that image, the gateway and the cell, which are described under
-[Two containers](#two-containers). Neither one loads Rails.
+and it means that one `bundle update` updates both.
 
 Hot Cell Remote configures the service by convention, so `hotcell/` holds only what's yours. Copy it from the
 example application's [`hotcell/`](examples/rails_app/hotcell):
 
 ```
 hotcell/
-  operations/            # your operations, which the service loads
-  config.ru              # the gateway
-  Dockerfile             # one image for both containers; build it from the application's root
+  operations/            # your operations
+  config.ru              # the service
+  Dockerfile             # the service's image; build it from the application's root
   Dockerfile.dockerignore
 ```
 
-The gateway's `config.ru` is two lines, and everything else comes from the gem:
+`config.ru` is two lines:
 
 ```ruby
 require "hotcell_remote/service"
@@ -205,72 +204,72 @@ require "hotcell_remote/service"
 run HotcellRemote::Service.gateway
 ```
 
-The service follows Hot Cell's own conventions: the image puts your operations in `/hotcell/operations`, and the
-cell creates its sockets in `/run/hotcell/cell`. Neither the image nor `config.ru` sets any `HOTCELL_*` variable,
-so an update to the gem can change how the service starts without a change to your application.
+### How the service runs
 
-### The image
+The service is one process tree. Puma runs the gateway, and `HotcellRemote::Service.gateway` starts the Hot Cell
+as a child process: a separate process, never inside Puma's, which forks a new worker for each request. The cell's
+sockets and its scratch files are in private temporary directories. If the cell exits, the gateway stops too, so
+that the platform restarts the whole service.
+
+- Run Puma in single mode (`-w 0`), so that one gateway starts one cell.
+- The service listens on `$PORT`, and answers `GET /up` for health checks.
+- The cell uses Hot Cell's default limits. To change `concurrency`, `memory`, or `deadline`, add a
+  `hotcell/config.rb` that calls `HotCell.limits`, which the cell loads when the file exists. Match
+  `OMP_NUM_THREADS` to the service's CPUs.
+
+Nothing in the image or in `config.ru` configures Hot Cell, so an update to the gem can change how the service
+starts without a change to your application.
+
+### Heroku
+
+Create a second Heroku app for the service, from the same repository, on the container stack:
+
+```sh
+heroku create my-app-hotcell --stack container
+heroku config:set HOTCELL_REMOTE_SECRET=… --app my-app-hotcell
+git push https://git.heroku.com/my-app-hotcell.git main
+```
+
+The example application's [`heroku.yml`](examples/rails_app/heroku.yml) builds `hotcell/Dockerfile` for the
+`web` process. Your application's own Heroku app keeps using its buildpacks, which ignore `heroku.yml`. Then
+point the application at the service:
+
+```sh
+heroku config:set HOTCELL_REMOTE_URL=https://my-app-hotcell.herokuapp.com HOTCELL_REMOTE_SECRET=… --app my-app
+```
+
+### Other platforms
+
+Build the image from the application's root and run it as one container:
 
 ```sh
 docker build -f hotcell/Dockerfile -t hotcell-remote .
+docker run -p 8080:8080 -e HOTCELL_REMOTE_SECRET=… hotcell-remote
 ```
 
-Run the build from the application's root, because the image needs the root's `Gemfile.lock`.
+On AWS ECS, run it as a service with one container. Give it no task role and no secrets except
+`HOTCELL_REMOTE_SECRET`, and a security group that only your application can reach. Where the platform lets you,
+also deny the service's outbound traffic, except what the platform itself needs, such as pulling the image and
+sending logs.
 
-### Two containers
+### What the service gives up
 
-Run the image as two containers that share a volume at `/run/hotcell`:
+Compared with Hot Cell's own deployment, the gateway and the cell share a container and a user, so:
 
-| Container | Command | User | Network |
-| --- | --- | --- | --- |
-| `cell` | the default, `bundle exec hotcell-remote-cell` | `10001:10001` | none, if your platform allows it |
-| `gateway` | `bundle exec puma --port 8080` | `10002:10001` | reachable by the application only |
+- The cell has the same network as the gateway. Hot Cell's own deployment gives the cell no network at all. On
+  Heroku, the service can reach the internet; elsewhere, restrict the service's outbound traffic.
+- The cell runs as the same user as the gateway, so code that escapes a worker could read the files of other
+  requests that the service is handling at that moment.
+- Container settings such as a read-only root filesystem and dropped capabilities are up to the platform.
 
-- `hotcell-remote-cell` is Hot Cell's own `hotcell` command, with the gem's cell setup loaded first.
-- The gateway's primary group is the cell's group (`10001`), so it can reach the cell's sockets and share each
-  request's files with the cell, without sharing the cell's user. The gateway uses its own primary group for
-  this, so run it with the cell's group, as the table does.
-- Health checks: the image's `HEALTHCHECK` probes the cell, and the gateway answers `GET /up`.
-- Give both containers a read-only root filesystem, drop every Linux capability, and set no secrets. Hot Cell's
-  [container settings](https://basecamp.github.io/hotcell/container/) describe the rest.
-- When the cell boots, it sweeps its temporary directory and removes everything that its user owns there. If
-  `TMPDIR` isn't set, `hotcell_remote/cell` gives the cell a new directory of its own, so that a cell which runs
-  outside its own container can't sweep a shared `/tmp`. If you do set `TMPDIR`, choose a directory that only the
-  cell uses, and keep the socket directory outside it.
-- The cell uses Hot Cell's default limits. To change `concurrency`, `memory`, or `deadline`, add a
-  `hotcell/config.rb` that calls `HotCell.limits`, which the cell loads when the file exists. Match
-  `OMP_NUM_THREADS` in the Dockerfile to the cell's CPUs.
-
-Then point the application at the gateway:
-
-```sh
-HOTCELL_REMOTE_URL=http://hotcell-remote.internal:8080
-HOTCELL_REMOTE_SECRET=…   # the same value on the application and the gateway
-```
-
-### Network isolation
-
-The point of the service is that code execution in a worker gets nothing worth having. Hot Cell's own deployment
-removes the cell's network. Where you can, do that too: with Kamal or Docker, give the `cell` container
-`network: none` and only the `gateway` a network.
-
-On AWS ECS Fargate, every container in a task shares one network namespace, so the cell can't have its own.
-Isolate the whole task instead:
-
-- A security group that allows ingress on `8080` from the application only, and **no egress** except to the VPC
-  endpoints that Fargate needs: ECR (`ecr.api`, `ecr.dkr`), S3 (for image layers), and CloudWatch Logs.
-- **No task role**, so the credentials endpoint has nothing to give. Its execution role needs no secrets.
-- A private address, through Service Connect or Cloud Map, rather than a public load balancer.
-- Fargate doesn't let you set `kernel.yama.ptrace_scope`, so the cell logs `cell.ptrace_scope_unknown` and boots
-  anyway. See Hot Cell's [worker isolation](https://basecamp.github.io/hotcell/design/worker-isolation/) for
-  what that leaves open.
+What it keeps is what matters most: the parsing of untrusted files happens away from your application, in a
+service that has nothing worth stealing, in forked workers with memory and time limits.
 
 ### The access secret
 
-When the gateway is reachable by more than the application, set `HOTCELL_REMOTE_SECRET` on both. The gateway
-compares it in constant time and answers `401` to any request without it, except `GET /up`. It's light
-authorization for an endpoint that would otherwise run work for anyone who can reach it, not a replacement for
-keeping the gateway private.
+The service is reachable over the network, so set `HOTCELL_REMOTE_SECRET` on both the application and the
+service. The gateway compares it in constant time and answers `401` to any request without it, except
+`GET /up`. Keep the service private where your platform allows it, too: on Heroku, its URL is public.
 
 ## The HTTP API
 

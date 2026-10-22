@@ -4,41 +4,32 @@ require "test_helper"
 require "hotcell_remote/service"
 require "tmpdir"
 
-# Boots a real Hot Cell with hotcell-remote-cell and calls it through the service's gateway.
+# Starts the service, a gateway and its Hot Cell, and calls the cell through the gateway.
 class HotCellTest < ActiveSupport::TestCase
   setup do
     skip "Hot Cell runs on Linux" unless RUBY_PLATFORM.include?("linux")
 
-    # A Unix socket path must fit in 108 bytes. With no TMPDIR, the cell gets a temporary directory of its
-    # own to sweep, rather than /tmp, which holds this test's files.
-    @root = Dir.mktmpdir("hc", "/tmp")
-    @neighbor = File.join(@root, "neighbor")
+    @neighbor = File.join(Dir.tmpdir, "hotcell-remote-neighbor-#{Process.pid}")
     File.write(@neighbor, "")
-    env = {
-      "HOTCELL_DIR" => File.join(@root, HotcellRemote::Executors::HotCell::CELL),
-      "TMPDIR" => nil,
-      "TMP" => nil,
-      "TEMP" => nil,
-      "HOTCELL_OPERATIONS" => File.expand_path("fixtures/operations", __dir__),
-      "RUBYLIB" => File.expand_path("../lib", __dir__)
-    }
-    @log = File.join(@root, "cell.log")
-    @pid = Process.spawn(env, "bundle", "exec", "hotcell-remote-cell", out: @log, err: @log, pgroup: true)
-    wait_for_socket(File.join(env["HOTCELL_DIR"], "work.sock"))
-
-    @gateway = with_env("HOTCELL_ROOT" => @root, "HOTCELL_OPERATIONS" => File.expand_path("fixtures/operations", __dir__)) do
+    @gateway = with_env("HOTCELL_OPERATIONS" => File.expand_path("fixtures/operations", __dir__)) do
       Rack::MockRequest.new(HotcellRemote::Service.gateway)
     end
   end
 
   teardown do
-    Process.kill("TERM", -@pid) if @pid
-    Process.wait(@pid) if @pid
-    FileUtils.rm_rf(@root) if @root
+    HotcellRemote::Service.stop
+    FileUtils.rm_f(@neighbor) if @neighbor
   end
 
-  test "boots without sweeping the shared temporary directory" do
+  test "starts the cell without sweeping the shared temporary directory" do
     assert File.exist?(@neighbor)
+  end
+
+  test "stops the cell" do
+    pid = HotcellRemote::Service.cell_pid
+    HotcellRemote::Service.stop
+
+    assert_raises(Errno::ESRCH) { Process.kill(0, pid) }
   end
 
   test "runs operations in the cell" do
@@ -64,11 +55,5 @@ class HotCellTest < ActiveSupport::TestCase
     yield
   ensure
     original.each { |key, value| ENV[key] = value }
-  end
-
-  def wait_for_socket(path)
-    deadline = Time.now + 30
-    sleep 0.1 until File.socket?(path) || Time.now > deadline
-    flunk "the cell didn't start:\n#{File.read(@log)}" unless File.socket?(path)
   end
 end

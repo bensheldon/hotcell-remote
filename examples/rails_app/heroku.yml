@@ -1,0 +1,5 @@
+# For the hotcell-remote service's Heroku app, which uses the container stack. The application's own Heroku
+# app uses its buildpacks and ignores this file.
+build:
+  docker:
+    web: hotcell/Dockerfile
