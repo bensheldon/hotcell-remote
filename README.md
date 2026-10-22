@@ -111,8 +111,8 @@ failures, and discard or record permanent ones.
 
 ## Application settings
 
-These configure the Rails application. The service has no settings of its own except its secret, which
-[`config.ru`](#deploying-the-service) passes in.
+These configure the Rails application. The service has no settings of its own except `HOTCELL_REMOTE_SECRET`,
+which [`config.ru`](#deploying-the-service) passes in.
 
 | Setting | Default | Description |
 | --- | --- | --- |
