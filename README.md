@@ -112,7 +112,7 @@ failures, and discard or record permanent ones.
 ## Application settings
 
 These configure the Rails application. The service has no settings of its own except `HOTCELL_REMOTE_SECRET`,
-which [`config.ru`](#deploying-the-service) passes in.
+which [`config.ru`](#deploying-the-hot-cell-remote-service) passes in.
 
 | Setting | Default | Description |
 | --- | --- | --- |
@@ -144,10 +144,10 @@ them. The example application's
 analyzer, and a PDF previewer. It also sets `config.active_storage.variant_processor = :disabled`, so that Rails
 doesn't look for libvips in the application.
 
-## Deploying the service
+## Deploying the Hot Cell Remote service
 
-The service lives in your application's repository, in a `hotcell/` directory, but it isn't a copy of your
-application. It shares your `Gemfile.lock`, and takes only what the service needs:
+The Hot Cell Remote service lives in your application's repository, in a `hotcell/` directory, but it isn't a
+copy of your application. It shares your `Gemfile.lock`, and takes only what the service needs:
 
 | In the service | Not in the service |
 | --- | --- |
@@ -249,8 +249,9 @@ least:
 ### The secret
 
 The service is reachable over the network, so set `HOTCELL_REMOTE_SECRET` on both the application and the
-service. `config.ru` reads it with `ENV.fetch`, so the service won't start without it. The gateway compares it in constant time and refuses any request without it, except `GET /up`. Keep the
-service private where your platform allows it, too: on Heroku, its URL is public.
+service. `config.ru` reads it with `ENV.fetch`, so the service won't start without it. The gateway compares it
+in constant time and refuses any request without it, except `GET /up`. Keep the service private where your
+platform allows it, too: on Heroku, its URL is public.
 
 ## The HTTP API
 
