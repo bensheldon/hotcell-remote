@@ -20,9 +20,15 @@ module HotcellRemote
   Response = Data.define(:result, :output)
 
   class << self
-    # Set url to the gateway's URL to call the remote service. When it's blank, operations run in process,
-    # without isolation, but only if allow_inline is true.
-    attr_accessor :url, :allow_inline
+    # The gateway's URL. Every call goes there when it's set.
+    attr_accessor :url
+
+    # Whether operations may run in process, with no isolation, when there's no URL. The engine allows it
+    # only in development and test.
+    attr_accessor :inline
+
+    # The directory of operation files, which load when operations first run in process.
+    attr_accessor :operations_path
 
     # The shared secret that the remote gateway requires, if any.
     attr_accessor :access_secret
@@ -64,10 +70,11 @@ module HotcellRemote
     def transport
       @_transport ||= if url.to_s.strip != ""
                         Transports::Http.new(url, access_secret: access_secret.to_s.strip.empty? ? nil : access_secret)
-                      elsif allow_inline
+                      elsif inline
+                        load_operations(operations_path) if operations_path
                         Transports::Rack.new(Gateway.new(executor: Executors::Inline.new))
                       else
-                        raise ConfigurationError, "HotcellRemote.url is not set and allow_inline is false"
+                        raise ConfigurationError, "HotcellRemote.url is not set; operations run in process only in development and test"
                       end
     end
   end

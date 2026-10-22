@@ -7,7 +7,6 @@ module HotcellRemote
     config.hotcell_remote = ActiveSupport::OrderedOptions.new
     config.hotcell_remote.url = ENV.fetch("HOTCELL_REMOTE_URL", nil)
     config.hotcell_remote.access_secret = ENV.fetch("HOTCELL_ACCESS_SECRET", nil)
-    config.hotcell_remote.allow_inline = Rails.env.local?
     config.hotcell_remote.operations_path = nil
 
     # Class names to install in Active Storage, e.g. a transformer that calls the app's own operations.
@@ -16,8 +15,8 @@ module HotcellRemote
     initializer "hotcell_remote.configure" do |app|
       HotcellRemote.url = app.config.hotcell_remote.url
       HotcellRemote.access_secret = app.config.hotcell_remote.access_secret
-      HotcellRemote.allow_inline = app.config.hotcell_remote.allow_inline
-      HotcellRemote.load_operations(app.config.hotcell_remote.operations_path || app.root.join("hotcell/operations"))
+      HotcellRemote.inline = Rails.env.local?
+      HotcellRemote.operations_path = app.config.hotcell_remote.operations_path || app.root.join("hotcell/operations")
     end
 
     # Active Storage sets these from config.active_storage in an after_initialize registered by its

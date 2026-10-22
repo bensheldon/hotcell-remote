@@ -18,46 +18,43 @@ different host, behind its own firewall rules, and without any of the secrets th
                                                                                      └─ operation
 ```
 
-For development and test, the same gateway can run inside the application's process, so you don't have to run
-the service to work on the application. That's for parity only: in process, operations run with **no
-isolation**, and by default the engine allows it only in development and test.
-
 ## Installation
 
-Hot Cell Remote is a Rails engine. Put it in a `hotcell` Gemfile group that the application shares with the service,
-along with the gems that your operations need. The Hot Cell gems go in that group only:
+Hot Cell Remote is a Rails engine. The application and the service share one Gemfile and one `Gemfile.lock`, and
+a `hotcell` group holds what only the service needs: the Hot Cell gems, and the gems that your operations use.
 
 ```ruby
 # Gemfile
 group :default, :hotcell do
   gem "hotcell-remote", github: "bensheldon/hotcell-remote"
   gem "puma"
-
-  # Gems that your operations use, for example:
-  gem "image_processing"
-  gem "ruby-vips"
 end
 
 group :hotcell do
   gem "hotcell-client"
   gem "hotcell-server"
+
+  # Gems that your operations use, for example:
+  gem "image_processing"
+  gem "ruby-vips"
 end
 ```
 
-Rails never loads the `hotcell` group, and the application's image doesn't need it:
+Rails never loads the `hotcell` group, and the application's image leaves it out, along with the tools that your
+operations run:
 
 ```dockerfile
 ENV BUNDLE_WITHOUT="development:test:hotcell"
 ```
 
-The service's image installs only that group, with `BUNDLE_ONLY=hotcell`, from the same `Gemfile.lock`. It gets no
-Rails and none of the application's other gems.
+The service's image installs only the `hotcell` group, with `BUNDLE_ONLY=hotcell`. It gets no Rails and none of
+the application's other gems.
 
 ## Writing operations
 
-Operations are application code. Put them in `hotcell/operations/`. The engine requires every file there when the
-application boots, and the service's cell loads the same files. They're plain Ruby that the cell loads without
-Rails, so don't put them in an autoloaded directory or use Rails in them.
+Operations are application code, but they run only in the service. Put them in `hotcell/operations/`, where the
+service's gateway and cell load them. They're plain Ruby that the service loads without Rails, so don't put them
+in an autoloaded directory or use Rails in them.
 
 ```ruby
 # hotcell/operations/pdf.rb
@@ -89,7 +86,7 @@ module PdfOperations
 end
 ```
 
-Call them from anywhere in the application:
+The application calls them by name, from anywhere:
 
 ```ruby
 File.open(path, "rb") do |file|
@@ -104,8 +101,8 @@ response.result                                          # => { "content_type" =
 ### The operation API
 
 - `operation "name"` names the operation and registers it. Callers use the name.
-- `perform(input, output, **payload)` does the work. `input` and `output` are **paths**, so the operation runs the
-  same in process and in a cell, where they're `/dev/fd/N` paths to the caller's descriptors. Return a Hash; it
+- `perform(input, output, **payload)` does the work. `input` and `output` are **paths**: in the cell, they're `/dev/fd/N`
+  paths to the descriptors that the gateway passed. Return a Hash; it
   travels as JSON.
 - The payload arrives as keyword arguments. Declare the ones that the operation accepts, because the gateway rejects a
   missing or unknown keyword before it dispatches the operation. Payloads and results are JSON, so keys come back as strings and
@@ -132,23 +129,16 @@ the input's path.
 
 Let Active Job retry transient errors, and discard or record permanent ones.
 
-### Testing
-
-In development and test, operations run in process, through the same gateway, so test them through
-`HotcellRemote.perform` with real fixture files. Install the tools that they use on development machines and in CI.
-
 ## Configuration
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `config.hotcell_remote.url` | `ENV["HOTCELL_REMOTE_URL"]` | The service's gateway. When it's set, calls go there. |
+| `config.hotcell_remote.url` | `ENV["HOTCELL_REMOTE_URL"]` | The service's gateway. |
 | `config.hotcell_remote.access_secret` | `ENV["HOTCELL_ACCESS_SECRET"]` | A shared secret that the application sends as `Authorization: Bearer …`. |
-| `config.hotcell_remote.allow_inline` | `true` in development and test | Whether to run operations in process, with no isolation, when there's no URL. Otherwise a call raises `HotcellRemote::ConfigurationError`. |
-| `config.hotcell_remote.operations_path` | `hotcell/operations` | The directory of operation files. |
+| `config.hotcell_remote.operations_path` | `hotcell/operations` | The directory of operation files, for [development and test parity](#development-and-test-parity). |
 | `config.hotcell_remote.active_storage` | none | Classes to install in Active Storage. See below. |
 
-In production, set `url`. Don't turn on `allow_inline` there: it runs untrusted parsing in the application's
-process, which is what this gem exists to prevent.
+Without a URL, a call outside development and test raises `HotcellRemote::ConfigurationError`.
 
 ## Active Storage
 
@@ -262,7 +252,35 @@ Hotcell-Remote-Payload: {"page": 2}            (JSON object; optional)
 | `422` | The input couldn't be processed. A permanent failure. |
 | `503` | The cell is unavailable or failed transiently. Retry. |
 
-## Development
+## Development and test parity
+
+In development and test, you don't have to run the service. When there's no URL and `Rails.env.local?` is true,
+`HotcellRemote.perform` runs the same gateway inside the application's process, and the gateway runs the
+operation there. The API, the payload checks, and the errors are the same as the service's, but there's **no
+isolation**, so the engine never does this in any other environment.
+
+The application loads `hotcell/operations` the first time that an operation runs in process, so it needs the
+operations' gems in development and test too. Add those groups to the operation gems:
+
+```ruby
+group :development, :test, :hotcell do
+  gem "image_processing"
+  gem "ruby-vips"
+end
+```
+
+Install the tools that your operations run, such as libvips or poppler, on development machines and in CI. Then
+test operations through `HotcellRemote.perform` with real fixture files:
+
+```ruby
+test "reads the page count" do
+  response = file_fixture("two-pages.pdf").open { |file| HotcellRemote.perform("pdf.info", file) }
+
+  assert_equal 2, response.result["pages"]
+end
+```
+
+## Contributing
 
 ```sh
 bundle install

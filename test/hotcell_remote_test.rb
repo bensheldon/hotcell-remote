@@ -50,11 +50,11 @@ class HotcellRemoteTest < ActiveSupport::TestCase
   test "refuses to run in process unless allowed" do
     original = HotcellRemote.transport
     HotcellRemote.transport = nil
-    HotcellRemote.allow_inline = false
+    HotcellRemote.inline = false
 
     assert_raises(HotcellRemote::ConfigurationError) { HotcellRemote.perform("text.count", input) }
   ensure
-    HotcellRemote.allow_inline = true
+    HotcellRemote.inline = true
     HotcellRemote.transport = original
   end
 end
