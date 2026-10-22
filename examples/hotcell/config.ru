@@ -7,4 +7,4 @@ HotCell.root = ENV.fetch("HOTCELL_ROOT")
 HotCell.group = ENV.fetch("HOTCELL_GROUP", nil)
 HotcellRemote.load_operations(ENV.fetch("HOTCELL_OPERATIONS"))
 
-run HotcellRemote::Gateway.new(executor: HotcellRemote::Executors::HotCell.new, access_secret: ENV.fetch("HOTCELL_ACCESS_SECRET", nil))
+run HotcellRemote::Gateway.new(executor: HotcellRemote::Executors::HotCell.new, access_secret: ENV.fetch("HOTCELL_REMOTE_SECRET", nil))

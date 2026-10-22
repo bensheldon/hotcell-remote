@@ -134,7 +134,7 @@ Let Active Job retry transient errors, and discard or record permanent ones.
 | Setting | Default | Description |
 | --- | --- | --- |
 | `config.hotcell_remote.url` | `ENV["HOTCELL_REMOTE_URL"]` | The service's gateway. |
-| `config.hotcell_remote.access_secret` | `ENV["HOTCELL_ACCESS_SECRET"]` | A shared secret that the application sends as `Authorization: Bearer …`. |
+| `config.hotcell_remote.access_secret` | `ENV["HOTCELL_REMOTE_SECRET"]` | A shared secret that the application sends as `Authorization: Bearer …`. |
 | `config.hotcell_remote.operations_path` | `hotcell/operations` | The directory of operation files, for [development and test parity](#development-and-test-parity). |
 | `config.hotcell_remote.active_storage` | none | Classes to install in Active Storage. See below. |
 
@@ -205,7 +205,7 @@ Then point the application at the gateway:
 
 ```sh
 HOTCELL_REMOTE_URL=http://hotcell-remote.internal:8080
-HOTCELL_ACCESS_SECRET=…   # the same value on the application and the gateway
+HOTCELL_REMOTE_SECRET=…   # the same value on the application and the gateway
 ```
 
 ### Network isolation
@@ -227,7 +227,7 @@ Isolate the whole task instead:
 
 ### The access secret
 
-When the gateway is reachable by more than the application, set `HOTCELL_ACCESS_SECRET` on both. The gateway
+When the gateway is reachable by more than the application, set `HOTCELL_REMOTE_SECRET` on both. The gateway
 compares it in constant time and answers `401` to any request without it, except `GET /up`. It's light
 authorization for an endpoint that would otherwise run work for anyone who can reach it, not a replacement for
 keeping the gateway private.

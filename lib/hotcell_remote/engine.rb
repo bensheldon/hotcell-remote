@@ -6,7 +6,7 @@ module HotcellRemote
 
     config.hotcell_remote = ActiveSupport::OrderedOptions.new
     config.hotcell_remote.url = ENV.fetch("HOTCELL_REMOTE_URL", nil)
-    config.hotcell_remote.access_secret = ENV.fetch("HOTCELL_ACCESS_SECRET", nil)
+    config.hotcell_remote.access_secret = ENV.fetch("HOTCELL_REMOTE_SECRET", nil)
     config.hotcell_remote.operations_path = nil
 
     # Class names to install in Active Storage, e.g. a transformer that calls the app's own operations.
