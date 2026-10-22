@@ -1,7 +1,7 @@
 # Hot Cell Remote
 
-Run [Hot Cell](https://github.com/basecamp/hotcell) as an isolated service over the network — not as a sidecar —
-to run operations on untrusted files.
+Run [Hot Cell](https://github.com/basecamp/hotcell) as a network service — not a sidecar — to run operations on
+untrusted files.
 
 [Hot Cell](https://github.com/basecamp/hotcell) runs untrusted work in an unprivileged sibling container: forked
 workers with memory and time limits, no network, and no credentials. It passes files as descriptors over a UNIX
