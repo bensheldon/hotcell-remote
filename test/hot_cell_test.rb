@@ -9,14 +9,12 @@ require "tmpdir"
 # Starts the service, a gateway and its Hot Cell, behind Puma, and calls it over HTTP with Hot Cell's clients.
 class HotCellTest < ActiveSupport::TestCase
   setup do
-    skip "Hot Cell runs on Linux" unless RUBY_PLATFORM.include?("linux")
-
     @neighbor = File.join(Dir.tmpdir, "hotcell-remote-neighbor-#{Process.pid}")
     File.write(@neighbor, "")
 
     original = ENV.fetch("HOTCELL_OPERATIONS", nil)
     ENV["HOTCELL_OPERATIONS"] = File.expand_path("fixtures/operations", __dir__)
-    gateway = HotCell::Remote::Service.gateway(secret: "s3cret", keepalive: 0.2)
+    gateway = quietly { HotCell::Remote::Service.gateway(secret: "s3cret", keepalive: 0.2) }
     ENV["HOTCELL_OPERATIONS"] = original
 
     @server = Puma::Server.new(gateway, nil, min_threads: 1, max_threads: 2, log_writer: Puma::LogWriter.null)
@@ -24,14 +22,23 @@ class HotCellTest < ActiveSupport::TestCase
     @server.run
     @url = url
 
-    HotCell.register "remote", dir: "/hotcell-remote/remote", transport: HotCell::Remote::Transports::Http.new(url, secret: "s3cret")
-    HotCell.register "wrong-secret", dir: "/hotcell-remote/wrong-secret", transport: HotCell::Remote::Transports::Http.new(url, secret: "wrong")
+    HotCell.register "remote", dir: "/hotcell-remote/remote", transport: HotCell::Remote::Transports::Http.new(url, secret: "s3cret"), timeout: 75
+    HotCell.register "wrong-secret", dir: "/hotcell-remote/wrong-secret", transport: HotCell::Remote::Transports::Http.new(url, secret: "wrong"), timeout: 75
   end
 
   teardown do
     @server&.stop(true)
     HotCell::Remote::Service.stop
     FileUtils.rm_f(@neighbor) if @neighbor
+  end
+
+  # The cell inherits these streams when it's spawned, and logs to them.
+  def quietly
+    streams = [$stdout, $stderr].to_h { |stream| [stream, stream.dup] }
+    streams.each_key { |stream| stream.reopen(File::NULL, "w") }
+    yield
+  ensure
+    streams&.each { |stream, original| stream.reopen(original) }
   end
 
   test "runs operations in the cell" do
