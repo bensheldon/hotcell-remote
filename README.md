@@ -229,6 +229,22 @@ On AWS ECS, run it as a service with one container. Give it no task role and no 
 also deny the service's outbound traffic, except what the platform itself needs, such as pulling the image and
 sending logs.
 
+### Deploying changes to operations
+
+The application and the Hot Cell Remote service deploy separately, so for a few minutes one can be ahead of the
+other. Hot Cell's failure codes cover that:
+
+| Situation while out of sync | What the cell answers | Hot Cell's classification |
+| --- | --- | --- |
+| The application calls an operation that the service doesn't have yet | `unsupported` | transient |
+| The application sends a payload key that the service's operation doesn't accept yet, or leaves out one that it requires | `failed`, because the operation raises `ArgumentError` | transient |
+| The application calls an operation that the service has removed | `unsupported` | transient |
+
+Each one is transient, so a job that retries `HotCell::TransientFailure` succeeds once both sides match. A call
+that doesn't retry, such as a variant that's rendered during a web request, fails until then. So deploy the
+service first when you add or extend an operation, and the application first when you remove one, and give new
+payload keys defaults so that either order works.
+
 ### What the service gives up
 
 Compared with Hot Cell's own deployment, the gateway and the cell share a container and a user, so:
