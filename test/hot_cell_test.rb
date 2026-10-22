@@ -9,13 +9,16 @@ class HotCellTest < ActiveSupport::TestCase
   setup do
     skip "Hot Cell runs on Linux" unless RUBY_PLATFORM.include?("linux")
 
-    # A Unix socket path must fit in 108 bytes. The cell sweeps its TMPDIR at boot, so it gets its own,
-    # and the sockets live outside it.
+    # A Unix socket path must fit in 108 bytes. With no TMPDIR, the cell gets a temporary directory of its
+    # own to sweep, rather than /tmp, which holds this test's files.
     @root = Dir.mktmpdir("hc", "/tmp")
-    FileUtils.mkdir_p(File.join(@root, "tmp"))
+    @neighbor = File.join(@root, "neighbor")
+    File.write(@neighbor, "")
     env = {
       "HOTCELL_DIR" => File.join(@root, HotcellRemote::Executors::HotCell::CELL),
-      "TMPDIR" => File.join(@root, "tmp"),
+      "TMPDIR" => nil,
+      "TMP" => nil,
+      "TEMP" => nil,
       "HOTCELL_CONFIG" => File.expand_path("fixtures/config.rb", __dir__),
       "HOTCELL_OPERATIONS" => File.expand_path("fixtures/operations", __dir__),
       "RUBYLIB" => File.expand_path("../lib", __dir__)
@@ -32,6 +35,10 @@ class HotCellTest < ActiveSupport::TestCase
     Process.kill("TERM", -@pid) if @pid
     Process.wait(@pid) if @pid
     FileUtils.rm_rf(@root) if @root
+  end
+
+  test "boots without sweeping the shared temporary directory" do
+    assert File.exist?(@neighbor)
   end
 
   test "runs operations in the cell" do

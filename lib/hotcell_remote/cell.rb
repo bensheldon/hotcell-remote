@@ -2,6 +2,12 @@
 
 require "hot_cell/server"
 require "hotcell_remote"
+require "tmpdir"
+
+# A cell sweeps its temporary directory at boot, removing everything its uid owns there. Unless one is
+# configured, give it a new directory of its own, so a cell run outside its own container can't sweep a
+# shared /tmp. Nothing outside the cell uses its temporary files: callers pass descriptors.
+ENV["TMPDIR"] = Dir.mktmpdir("hotcell-remote") if ENV.values_at("TMPDIR", "TMP", "TEMP").all? { |value| value.to_s.empty? }
 
 # Serves each HotcellRemote operation from a Hot Cell as it's defined, so require this from the cell's
 # config.rb, before the cell loads the operation files. Operations read and write the caller's descriptors in

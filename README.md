@@ -216,7 +216,9 @@ Run the image as two containers that share a volume at `/run/hotcell`:
 - Health checks: the image's `HEALTHCHECK` probes the cell, and the gateway answers `GET /up`.
 - Give both containers a read-only root filesystem, drop every Linux capability, and set no secrets. Hot Cell's
   [container settings](https://basecamp.github.io/hotcell/container/) describe the rest.
-- The cell sweeps its `TMPDIR` when it boots. Never share the cell's `TMPDIR` with anything else, and keep the
+- The cell sweeps its temporary directory when it boots, removing everything its user owns there. When no
+  `TMPDIR` is set, `hotcell_remote/cell` gives the cell a new directory of its own, so a cell run outside its own
+  container can't sweep a shared `/tmp`. If you set `TMPDIR`, use a directory only the cell uses, and keep the
   socket directory outside it.
 - Set `concurrency`, `memory`, and `deadline` in `config.rb`, and match `OMP_NUM_THREADS` to the cell's CPUs.
 
