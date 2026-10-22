@@ -16,12 +16,13 @@ class HotCellTest < ActiveSupport::TestCase
 
     original = ENV.fetch("HOTCELL_OPERATIONS", nil)
     ENV["HOTCELL_OPERATIONS"] = File.expand_path("fixtures/operations", __dir__)
-    gateway = HotcellRemote::Service.gateway(secret: "s3cret")
+    gateway = HotcellRemote::Service.gateway(secret: "s3cret", keepalive: 0.2)
     ENV["HOTCELL_OPERATIONS"] = original
 
     @server = Puma::Server.new(gateway, nil, min_threads: 1, max_threads: 2, log_writer: Puma::LogWriter.null)
     url = "http://127.0.0.1:#{@server.add_tcp_listener('127.0.0.1', 0).addr[1]}"
     @server.run
+    @url = url
 
     HotCell.register "remote", dir: "/hotcell-remote/remote", transport: HotcellRemote::Transports::Http.new(url, secret: "s3cret")
     HotCell.register "wrong-secret", dir: "/hotcell-remote/wrong-secret", transport: HotcellRemote::Transports::Http.new(url, secret: "wrong")
@@ -49,6 +50,19 @@ class HotCellTest < ActiveSupport::TestCase
       error = assert_raises(HotCell::PermanentFailure) { client("remote", "text.unreadable").perform_in_hotcell(input, []) }
       assert_equal "unreadable", error.hot_cell_failure.code
     end
+  end
+
+  test "sends newlines while the cell works, and then the answer" do
+    with_files do |input|
+      assert_equal({ waited: 1 }, client("remote", "text.wait").perform_in_hotcell(input, [], { seconds: 1 }))
+    end
+
+    request = Net::HTTP::Post.new(URI.join(@url, "/work"))
+    request["Authorization"] = "Bearer s3cret"
+    request.set_form([["request", HotCell::Request.new(op: "text.wait", payload: { seconds: 1 }).to_line]], "multipart/form-data")
+    body = Net::HTTP.start(URI(@url).host, URI(@url).port) { |http| http.request(request).body }
+
+    assert_match(/\A\n{3,}\{/, body)
   end
 
   test "relays control requests" do

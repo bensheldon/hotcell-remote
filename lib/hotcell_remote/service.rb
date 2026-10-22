@@ -23,11 +23,11 @@ module HotcellRemote
 
       # Starts the cell and returns the gateway, a Rack app that passes each request to it. Requests must send
       # +secret+ unless it's nil.
-      def gateway(secret:)
+      def gateway(secret:, keepalive: Gateway::KEEPALIVE)
         sockets = start_cell
         cell = HotCell::Cell.new("cell", dir: sockets, timeout: 120)
 
-        Gateway.new(cell, secret:)
+        Gateway.new(cell, secret:, keepalive:)
       end
 
       def stop

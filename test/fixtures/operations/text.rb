@@ -29,3 +29,15 @@ module TextOperations
     end
   end
 end
+
+module TextOperations
+  # Takes +seconds+ before it answers, to hold a request open.
+  class Wait < HotCell::Operation
+    operation "text.wait"
+
+    def perform(_inputs, _outputs, seconds:)
+      sleep seconds
+      { waited: seconds }
+    end
+  end
+end

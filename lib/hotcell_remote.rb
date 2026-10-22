@@ -9,9 +9,11 @@ require "hotcell_remote/version"
 module HotcellRemote
   class ConfigurationError < StandardError; end
 
-  # The headers and paths of the HTTP API.
+  # The HTTP API. The client sends its PROTOCOL version, which the gateway doesn't check yet. It's there so a
+  # future change to the API can tell which version the other side speaks.
+  PROTOCOL = 1
+  PROTOCOL_HEADER = "Hotcell-Remote-Protocol"
   SECRET_SCHEME = "Bearer"
-  OUTPUT_SIZES_HEADER = "hotcell-remote-output-sizes"
   WORK_PATH = "/work"
   CONTROL_PATH = "/control"
 

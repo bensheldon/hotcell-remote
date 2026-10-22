@@ -266,10 +266,20 @@ POST /control       a describe or metrics request
 GET  /up            a health check, which needs no secret
 ```
 
-A request is `multipart/form-data`, with `Authorization: Bearer <secret>` when the service has one. Its
-`request` part is Hot Cell's request line, and its `input0`, `input1`, … parts are the inputs' bytes. A response
-is `200`, with a body of Hot Cell's response line followed by the outputs' bytes, whose sizes are in the
-`Hotcell-Remote-Output-Sizes` header. A `401` means a missing or wrong secret.
+A request is `multipart/form-data`, with `Authorization: Bearer <secret>` when the service has one, and the
+client's protocol version in `Hotcell-Remote-Protocol`. Its `request` part is Hot Cell's request line, and its
+`input0`, `input1`, … parts are the inputs' bytes. A `401` means a missing or wrong secret.
+
+Every relayed request answers `200`, and Hot Cell's response line says how it went. The body is:
+
+1. A newline every 15 seconds while the cell works.
+2. Hot Cell's response line.
+3. A line with the outputs' sizes, separated by commas, which is empty when there are no outputs.
+4. The outputs' bytes, one after another.
+
+The newlines keep a router from timing out a slow operation. Heroku's router, for example, ends a request that
+sends nothing for 30 seconds, and AWS load balancers end a connection that's idle for 60 seconds by default. The
+client skips the newlines and writes each output straight into its file, so outputs never have to fit in memory.
 
 ## Development and test parity
 

@@ -24,5 +24,6 @@ class GatewayTest < ActiveSupport::TestCase
 
     assert_equal 200, response.status
     assert_equal "unavailable", HotCell::Response.parse(response.body.lines.first).failure.code
+    assert_equal "\n", response.body.lines.second
   end
 end
