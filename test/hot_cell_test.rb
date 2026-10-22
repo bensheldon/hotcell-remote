@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "hotcell_remote/executors/hot_cell"
+require "hotcell_remote/service"
 require "tmpdir"
 
-# Boots a real Hot Cell with the fixture operations and calls it through the gateway.
+# Boots a real Hot Cell with hotcell-remote-cell and calls it through the service's gateway.
 class HotCellTest < ActiveSupport::TestCase
   setup do
     skip "Hot Cell runs on Linux" unless RUBY_PLATFORM.include?("linux")
@@ -19,16 +19,16 @@ class HotCellTest < ActiveSupport::TestCase
       "TMPDIR" => nil,
       "TMP" => nil,
       "TEMP" => nil,
-      "HOTCELL_CONFIG" => File.expand_path("fixtures/config.rb", __dir__),
       "HOTCELL_OPERATIONS" => File.expand_path("fixtures/operations", __dir__),
       "RUBYLIB" => File.expand_path("../lib", __dir__)
     }
     @log = File.join(@root, "cell.log")
-    @pid = Process.spawn(env, "bundle", "exec", "hotcell", out: @log, err: @log, pgroup: true)
+    @pid = Process.spawn(env, "bundle", "exec", "hotcell-remote-cell", out: @log, err: @log, pgroup: true)
     wait_for_socket(File.join(env["HOTCELL_DIR"], "work.sock"))
 
-    HotCell.root = @root
-    @gateway = Rack::MockRequest.new(HotcellRemote::Gateway.new(executor: HotcellRemote::Executors::HotCell.new))
+    @gateway = with_env("HOTCELL_ROOT" => @root, "HOTCELL_OPERATIONS" => File.expand_path("fixtures/operations", __dir__)) do
+      Rack::MockRequest.new(HotcellRemote::Service.gateway)
+    end
   end
 
   teardown do
@@ -57,6 +57,14 @@ class HotCellTest < ActiveSupport::TestCase
   end
 
   private
+
+  def with_env(values)
+    original = values.keys.to_h { |key| [key, ENV.fetch(key, nil)] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    original.each { |key, value| ENV[key] = value }
+  end
 
   def wait_for_socket(path)
     deadline = Time.now + 30

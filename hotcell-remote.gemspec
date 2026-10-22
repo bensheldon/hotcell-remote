@@ -11,7 +11,9 @@ Gem::Specification.new do |spec|
   spec.homepage = "https://github.com/bensheldon/hotcell-remote"
   spec.license = "MIT"
 
-  spec.files = Dir["lib/**/*", "examples/**/*", "README.md", "LICENSE"]
+  spec.files = Dir["lib/**/*", "exe/**/*", "examples/**/*", "README.md", "LICENSE"]
+  spec.bindir = "exe"
+  spec.executables = ["hotcell-remote-cell"]
 
   spec.required_ruby_version = ">= 3.3"
   spec.add_dependency "rack", ">= 3"

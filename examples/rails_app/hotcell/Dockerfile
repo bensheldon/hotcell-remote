@@ -6,8 +6,11 @@
 #
 # One image runs as two containers that share a volume at /run/hotcell:
 #   - cell (the default command): the Hot Cell supervisor and the forked workers that parse untrusted files.
-#   - gateway (`bundle exec puma --port 8080 config.ru`): the HTTP API the application calls. It passes each
+#   - gateway (`bundle exec puma --port 8080`): the HTTP API that the application calls. It passes each
 #     request to the cell over the cell's UNIX socket.
+#
+# Hot Cell Remote follows Hot Cell's conventions, so nothing here configures it: the operations are in
+# /hotcell/operations, and the cell's sockets are in /run/hotcell/cell.
 
 ARG RUBY_VERSION=3.4
 FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
@@ -25,11 +28,7 @@ ENV BUNDLE_DEPLOYMENT="1" \
     BUNDLE_ONLY="hotcell" \
     HOME=/tmp \
     OMP_NUM_THREADS=1 \
-    OMP_THREAD_LIMIT=4 \
-    HOTCELL_OPERATIONS=/hotcell/operations \
-    HOTCELL_ROOT=/run/hotcell \
-    HOTCELL_DIR=/run/hotcell/hotcell_remote \
-    HOTCELL_GROUP=10001
+    OMP_THREAD_LIMIT=4
 
 WORKDIR /hotcell
 
@@ -48,16 +47,16 @@ FROM base
 
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --from=build /hotcell /hotcell
-COPY hotcell/config.rb hotcell/config.ru /hotcell/
-COPY hotcell/operations /hotcell/operations
+COPY hotcell/ /hotcell/
 
-# The cell runs as 10001:10001. The gateway runs as 10002 in group 10001: the group lets it reach the cell's
-# 0660 sockets and share each request's files with the cell, without sharing a uid with it. The cell's code
+# The cell runs as 10001:10001. The gateway runs as 10002 with the cell's group, 10001, as its primary group:
+# the group lets it reach the cell's 0660 sockets and share each request's files with the cell, without
+# sharing a uid with it. The cell's code
 # belongs to root, so a worker can't change what the next boot loads.
 RUN groupadd --gid 10001 hotcell && \
     useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin hotcell && \
     useradd --uid 10002 --gid 10001 --no-create-home --shell /usr/sbin/nologin gateway && \
-    mkdir -p /run/hotcell/hotcell_remote && chown -R hotcell:hotcell /run/hotcell && chmod 0770 /run/hotcell/hotcell_remote && \
+    mkdir -p /run/hotcell/cell && chown -R hotcell:hotcell /run/hotcell && chmod 0770 /run/hotcell/cell && \
     chown -R root:root /hotcell && chmod -R go-w /hotcell && \
     find / -xdev -type f -perm /06000 -exec chmod a-s {} +
 
@@ -66,4 +65,4 @@ USER 10001:10001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["bundle", "exec", "hotcell-health"]
 
-CMD ["bundle", "exec", "hotcell"]
+CMD ["bundle", "exec", "hotcell-remote-cell"]

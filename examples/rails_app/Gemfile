@@ -1,0 +1,24 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+gem "rails", "~> 8.1"
+gem "sqlite3"
+
+# The application and the service: the service's gateway is a Rack app on Puma.
+group :default, :hotcell do
+  gem "hotcell-remote", github: "bensheldon/hotcell-remote"
+  gem "puma"
+end
+
+# Only the service, which runs the operations.
+group :hotcell do
+  gem "hotcell-client"
+  gem "hotcell-server"
+end
+
+# The gems that the operations use. Development and test run the operations in process, for parity.
+group :development, :test, :hotcell do
+  gem "image_processing"
+  gem "ruby-vips"
+end

@@ -7,7 +7,8 @@ module HotcellRemote
     # Sends each operation to a Hot Cell over its UNIX socket, passing the input and output as descriptors.
     # The cell runs the same operation classes, wrapped by hotcell_remote/cell.
     class HotCell
-      CELL = "hotcell_remote"
+      # Hot Cell's default socket directory is /run/hotcell/cell, so the cell is named "cell".
+      CELL = "cell"
 
       def initialize(timeout: 60)
         ::HotCell.register CELL, timeout:, permanent: PermanentError, transient: TransientError

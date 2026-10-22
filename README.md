@@ -18,6 +18,10 @@ different host, behind its own firewall rules, and without any of the secrets th
                                                                                      └─ operation
 ```
 
+[`examples/rails_app`](examples/rails_app) is a minimal Rails application that has every piece below in its
+place: the Gemfile, the operations, the service's `hotcell/` directory, both Dockerfiles, an Active Storage
+setup, a job, and a test.
+
 ## Installation
 
 Hot Cell Remote is a Rails engine. The application and the service share one Gemfile and one `Gemfile.lock`, and
@@ -155,9 +159,11 @@ end
 ```
 
 The engine installs them after Active Storage applies `config.active_storage`, which would otherwise replace
-them. [`examples/lib/hotcell_active_storage`](examples/lib/hotcell_active_storage) has a transformer, an image
-analyzer, and a PDF previewer for the operations in
-[`examples/hotcell/operations`](examples/hotcell/operations).
+them. The example application's
+[`lib/hotcell_active_storage`](examples/rails_app/lib/hotcell_active_storage) has a transformer, an image
+analyzer, and a PDF previewer for its [operations](examples/rails_app/hotcell/operations). It also sets
+`config.active_storage.variant_processor = :disabled`, so that Rails doesn't look for libvips in the
+application.
 
 ## Deploying the service
 
@@ -169,7 +175,7 @@ only what the service needs:
 | --- | --- |
 | Ruby, and the tools that your operations run, such as libvips or poppler | Your application's code: `app/`, `config/`, `lib/` |
 | The gems in the `hotcell` group: Hot Cell Remote, the Hot Cell gems, Puma, and the gems that your operations use | Rails, and every gem outside the `hotcell` group |
-| `hotcell/`: your operations, the cell's `config.rb`, and the gateway's `config.ru` | Your application's credentials, secrets, and database access |
+| `hotcell/`: your operations and the gateway's `config.ru` | Your application's credentials, secrets, and database access |
 
 The Dockerfile copies the whole `Gemfile` and `Gemfile.lock`, which list every gem that your application uses,
 but Bundler installs only the `hotcell` group (`BUNDLE_ONLY=hotcell`). Sharing one lockfile keeps the service's
@@ -180,16 +186,28 @@ the Gemfile and lockfile, and `hotcell/`, so nothing else from the repository re
 The service runs as two processes from that image, the gateway and the cell, which are described under
 [Two containers](#two-containers). Neither one loads Rails.
 
-[`examples/hotcell`](examples/hotcell) has everything below. Copy it to `hotcell/` in your application.
+Hot Cell Remote configures the service by convention, so `hotcell/` holds only what's yours. Copy it from the
+example application's [`hotcell/`](examples/rails_app/hotcell):
 
 ```
 hotcell/
   operations/            # your operations, which the service loads
-  config.rb              # the cell's limits; requires hotcell_remote/cell
   config.ru              # the gateway
   Dockerfile             # one image for both containers; build it from the application's root
   Dockerfile.dockerignore
 ```
+
+The gateway's `config.ru` is two lines, and everything else comes from the gem:
+
+```ruby
+require "hotcell_remote/service"
+
+run HotcellRemote::Service.gateway
+```
+
+The service follows Hot Cell's own conventions: the image puts your operations in `/hotcell/operations`, and the
+cell creates its sockets in `/run/hotcell/cell`. Neither the image nor `config.ru` sets any `HOTCELL_*` variable,
+so an update to the gem can change how the service starts without a change to your application.
 
 ### The image
 
@@ -205,11 +223,13 @@ Run the image as two containers that share a volume at `/run/hotcell`:
 
 | Container | Command | User | Network |
 | --- | --- | --- | --- |
-| `cell` | the default, `bundle exec hotcell` | `10001:10001` | none, if your platform allows it |
-| `gateway` | `bundle exec puma --port 8080 config.ru` | `10002:10001` | reachable by the application only |
+| `cell` | the default, `bundle exec hotcell-remote-cell` | `10001:10001` | none, if your platform allows it |
+| `gateway` | `bundle exec puma --port 8080` | `10002:10001` | reachable by the application only |
 
-- The gateway runs in the cell's group (`10001`), so it can reach the cell's sockets and share each request's
-  files with the cell, without sharing the cell's user.
+- `hotcell-remote-cell` is Hot Cell's own `hotcell` command, with the gem's cell setup loaded first.
+- The gateway's primary group is the cell's group (`10001`), so it can reach the cell's sockets and share each
+  request's files with the cell, without sharing the cell's user. The gateway uses its own primary group for
+  this, so run it with the cell's group, as the table does.
 - Health checks: the image's `HEALTHCHECK` probes the cell, and the gateway answers `GET /up`.
 - Give both containers a read-only root filesystem, drop every Linux capability, and set no secrets. Hot Cell's
   [container settings](https://basecamp.github.io/hotcell/container/) describe the rest.
@@ -217,7 +237,9 @@ Run the image as two containers that share a volume at `/run/hotcell`:
   `TMPDIR` isn't set, `hotcell_remote/cell` gives the cell a new directory of its own, so that a cell which runs
   outside its own container can't sweep a shared `/tmp`. If you do set `TMPDIR`, choose a directory that only the
   cell uses, and keep the socket directory outside it.
-- Set `concurrency`, `memory`, and `deadline` in `config.rb`, and match `OMP_NUM_THREADS` to the cell's CPUs.
+- The cell uses Hot Cell's default limits. To change `concurrency`, `memory`, or `deadline`, add a
+  `hotcell/config.rb` that calls `HotCell.limits`, which the cell loads when the file exists. Match
+  `OMP_NUM_THREADS` in the Dockerfile to the cell's CPUs.
 
 Then point the application at the gateway:
 

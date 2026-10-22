@@ -1,0 +1,8 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Boots a Hot Cell that serves the application's operations: hotcell_remote/cell sets up the cell, and then
+# Hot Cell's own executable loads the operations and runs the supervisor.
+require "hotcell_remote/cell"
+
+load Gem.bin_path("hotcell-server", "hotcell")
