@@ -165,6 +165,7 @@ example application's [`hotcell/`](examples/rails_app/hotcell):
 ```
 hotcell/
   operations/            # your operations
+  config.rb              # the cell's limits; optional
   config.ru              # the service
   Dockerfile             # the service's image; build it from the application's root
   Dockerfile.dockerignore
@@ -188,9 +189,10 @@ gateway stops too, so that the platform restarts the whole service.
 
 - Run Puma in single mode (`-w 0`), so that one gateway starts one cell.
 - The service listens on `$PORT`, and answers `GET /up` for health checks.
-- The cell uses Hot Cell's default limits. To change them, add a `hotcell/config.rb` that calls
-  [`HotCell.limits`](https://basecamp.github.io/hotcell/cell-settings/), which the cell loads when the file
-  exists. Match `OMP_NUM_THREADS` to the service's CPUs.
+- The cell's limits are in `hotcell/config.rb`, which calls
+  [`HotCell.limits`](https://basecamp.github.io/hotcell/cell-settings/). The cell loads it when the file exists,
+  and otherwise uses Hot Cell's defaults. Size `concurrency` and `OMP_NUM_THREADS` to the service's CPUs, and
+  make the application's client `timeout` longer than `deadline` plus `queue_wait`.
 
 Nothing in the image or in `config.ru` configures Hot Cell, so an update to the gem can change how the service
 starts without a change to your application.
