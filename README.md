@@ -1,7 +1,7 @@
 # Hot Cell Remote
 
-Run operations on untrusted files — PDFs, images, anything a C library has to parse — in an isolated service that
-a Rails application calls over the network.
+Run [Hot Cell](https://github.com/basecamp/hotcell) as an isolated service over the network — not as a sidecar —
+to run operations on untrusted files in an isolated environment.
 
 [Hot Cell](https://github.com/basecamp/hotcell) runs untrusted work in an unprivileged sibling container: forked
 workers with memory and time limits, no network, and no credentials. It passes files as descriptors over a UNIX
