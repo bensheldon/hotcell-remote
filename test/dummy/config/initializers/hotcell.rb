@@ -1,3 +1,3 @@
 # frozen_string_literal: true
 
-HotcellRemote.register "text"
+HotCell::Remote.register "text"

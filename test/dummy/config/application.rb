@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "rails"
-require "hotcell_remote"
+require "hot_cell/remote"
 
 module Dummy
   class Application < Rails::Application

@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "hotcell_remote/service"
-require "hotcell_remote/transports/http"
+require "hot_cell/remote/service"
+require "hot_cell/remote/transports/http"
 require "puma"
 require "tmpdir"
 
@@ -16,7 +16,7 @@ class HotCellTest < ActiveSupport::TestCase
 
     original = ENV.fetch("HOTCELL_OPERATIONS", nil)
     ENV["HOTCELL_OPERATIONS"] = File.expand_path("fixtures/operations", __dir__)
-    gateway = HotcellRemote::Service.gateway(secret: "s3cret", keepalive: 0.2)
+    gateway = HotCell::Remote::Service.gateway(secret: "s3cret", keepalive: 0.2)
     ENV["HOTCELL_OPERATIONS"] = original
 
     @server = Puma::Server.new(gateway, nil, min_threads: 1, max_threads: 2, log_writer: Puma::LogWriter.null)
@@ -24,13 +24,13 @@ class HotCellTest < ActiveSupport::TestCase
     @server.run
     @url = url
 
-    HotCell.register "remote", dir: "/hotcell-remote/remote", transport: HotcellRemote::Transports::Http.new(url, secret: "s3cret")
-    HotCell.register "wrong-secret", dir: "/hotcell-remote/wrong-secret", transport: HotcellRemote::Transports::Http.new(url, secret: "wrong")
+    HotCell.register "remote", dir: "/hotcell-remote/remote", transport: HotCell::Remote::Transports::Http.new(url, secret: "s3cret")
+    HotCell.register "wrong-secret", dir: "/hotcell-remote/wrong-secret", transport: HotCell::Remote::Transports::Http.new(url, secret: "wrong")
   end
 
   teardown do
     @server&.stop(true)
-    HotcellRemote::Service.stop
+    HotCell::Remote::Service.stop
     FileUtils.rm_f(@neighbor) if @neighbor
   end
 
@@ -81,8 +81,8 @@ class HotCellTest < ActiveSupport::TestCase
   end
 
   test "stops the cell" do
-    pid = HotcellRemote::Service.cell_pid
-    HotcellRemote::Service.stop
+    pid = HotCell::Remote::Service.cell_pid
+    HotCell::Remote::Service.stop
 
     assert_raises(Errno::ESRCH) { Process.kill(0, pid) }
   end

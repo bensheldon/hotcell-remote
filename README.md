@@ -59,10 +59,10 @@ Register the cell that the service runs, in place of Hot Cell's `HotCell.registe
 
 ```ruby
 # config/initializers/hotcell.rb
-HotcellRemote.register "media", timeout: 75
+HotCell::Remote.register "media", timeout: 75
 ```
 
-`HotcellRemote.register` takes the same options as `HotCell.register`, such as `timeout`, `permanent`, and
+`HotCell::Remote.register` takes the same options as `HotCell.register`, such as `timeout`, `permanent`, and
 `transient`, and gives the cell Hot Cell Remote's transport, which sends each request to `HOTCELL_REMOTE_URL`.
 
 ## Operations and clients
@@ -121,7 +121,7 @@ which [`config.ru`](#deploying-the-hot-cell-remote-service) passes in.
 | `config.hotcell_remote.operations_path` | `hotcell/operations` | The directory of operation files, for [development and test parity](#development-and-test-parity). |
 | `config.hotcell_remote.active_storage` | none | Classes to install in Active Storage. See below. |
 
-Without a URL, outside development and test, `HotcellRemote.register` raises `HotcellRemote::ConfigurationError`,
+Without a URL, outside development and test, `HotCell::Remote.register` raises `HotCell::Remote::ConfigurationError`,
 so the application doesn't boot.
 
 ## Active Storage
@@ -174,14 +174,14 @@ hotcell/
 `config.ru` starts the service, and passes it the secret from the service's environment:
 
 ```ruby
-require "hotcell_remote/service"
+require "hot_cell/remote/service"
 
-run HotcellRemote::Service.gateway(secret: ENV.fetch("HOTCELL_REMOTE_SECRET"))
+run HotCell::Remote::Service.gateway(secret: ENV.fetch("HOTCELL_REMOTE_SECRET"))
 ```
 
 ### How the service runs
 
-The service is one process tree. Puma runs the gateway, and `HotcellRemote::Service.gateway` starts Hot Cell's
+The service is one process tree. Puma runs the gateway, and `HotCell::Remote::Service.gateway` starts Hot Cell's
 own `hotcell` command as a child process: a separate process, never inside Puma's, which forks a new worker for
 each request. The cell's sockets and its scratch files are in private temporary directories. The gateway passes
 each request to the cell unchanged, so it never parses an input or loads an operation. If the cell exits, the
@@ -300,7 +300,7 @@ client skips the newlines and writes each output straight into its file, so outp
 ## Development and test parity
 
 In development and test, you don't have to run the service. When there's no URL and `Rails.env.local?` is true,
-`HotcellRemote.register` gives the cell a transport that runs each request inside the application's process, the
+`HotCell::Remote.register` gives the cell a transport that runs each request inside the application's process, the
 way a Hot Cell worker does, with the same results and the same failure codes. There's **no isolation**: no fork,
 no limits, and no separate service. The engine never does this in any other environment.
 

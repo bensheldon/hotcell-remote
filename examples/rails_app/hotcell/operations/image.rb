@@ -3,6 +3,9 @@
 # Loading libvips before the cell forks is safe; evaluating an image there isn't.
 require "image_processing/vips"
 
+# An input's path is /dev/fd/N, which repeats from request to request, so libvips mustn't cache images by path.
+Vips.cache_set_max(0)
+
 module ImageOperations
   # Converts to +format+ and applies ImageProcessing operations, given as [name, argument] pairs.
   class Transform < HotCell::Operation
