@@ -1,23 +1,19 @@
 # frozen_string_literal: true
 
+# Loading libvips before the cell forks is safe; evaluating an image there isn't.
 require "image_processing/vips"
 
 module ImageOperations
-  # Converts to +format+ and applies ImageProcessing operations, given as a Hash or as [name, argument]
-  # pairs, e.g. { "resize_to_limit" => [800, 600], "saver" => { "quality" => 80 } }.
-  class Transform < HotcellRemote::Operation
+  # Converts to +format+ and applies ImageProcessing operations, given as [name, argument] pairs.
+  class Transform < HotCell::Operation
     operation "image.transform"
+    unreadable Vips::Error
 
-    def perform(input, output, format:, operations: [])
-      staged(output) do |dir|
-        File.join(dir, "image.#{format}").tap do |destination|
-          ImageProcessing::Vips.source(input).loader(page: 0).convert(format).apply(symbolize_keys(operations.to_a)).call(destination:)
-        end
-      end
-
-      { content_type: "image/#{format}" }
-    rescue Vips::Error => e
-      raise HotcellRemote::UnreadableInput, e.message
+    def perform(inputs, outputs, format:, operations: [])
+      staged = outputs.first.path(extension: format)
+      ImageProcessing::Vips.source(inputs.first.fd_path).loader(page: 0).convert(format).apply(symbolize_keys(operations)).call(destination: staged)
+      outputs.first.adopt(staged)
+      {}
     end
 
     private
@@ -33,26 +29,21 @@ module ImageOperations
   end
 
   # Reports the dimensions as displayed, swapping them for an image whose EXIF orientation rotates it.
-  class Analyze < HotcellRemote::Operation
+  class Analyze < HotCell::Operation
     operation "image.analyze"
-    result_only
+    unreadable Vips::Error
 
     ROTATIONS = /Right-top|Left-bottom|Top-right|Bottom-left/
 
-    def perform(input, _output)
-      image = Vips::Image.new_from_file(input, access: :sequential)
+    def perform(inputs, _outputs)
+      image = Vips::Image.new_from_file(inputs.first.fd_path, access: :sequential)
+      rotated = begin
+        ROTATIONS.match?(image.get("exif-ifd0-Orientation"))
+      rescue Vips::Error
+        false
+      end
 
-      rotated?(image) ? { width: image.height, height: image.width } : { width: image.width, height: image.height }
-    rescue Vips::Error => e
-      raise HotcellRemote::UnreadableInput, e.message
-    end
-
-    private
-
-    def rotated?(image)
-      ROTATIONS.match?(image.get("exif-ifd0-Orientation"))
-    rescue Vips::Error
-      false
+      rotated ? { width: image.height, height: image.width } : { width: image.width, height: image.height }
     end
   end
 end

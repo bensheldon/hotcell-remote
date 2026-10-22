@@ -2,23 +2,66 @@
 
 require "test_helper"
 require "hotcell_remote/service"
+require "hotcell_remote/transports/http"
+require "puma"
 require "tmpdir"
 
-# Starts the service, a gateway and its Hot Cell, and calls the cell through the gateway.
+# Starts the service, a gateway and its Hot Cell, behind Puma, and calls it over HTTP with Hot Cell's clients.
 class HotCellTest < ActiveSupport::TestCase
   setup do
     skip "Hot Cell runs on Linux" unless RUBY_PLATFORM.include?("linux")
 
     @neighbor = File.join(Dir.tmpdir, "hotcell-remote-neighbor-#{Process.pid}")
     File.write(@neighbor, "")
-    @gateway = with_env("HOTCELL_OPERATIONS" => File.expand_path("fixtures/operations", __dir__)) do
-      Rack::MockRequest.new(HotcellRemote::Service.gateway)
-    end
+
+    original = ENV.fetch("HOTCELL_OPERATIONS", nil)
+    ENV["HOTCELL_OPERATIONS"] = File.expand_path("fixtures/operations", __dir__)
+    ENV["HOTCELL_REMOTE_SECRET"] = "s3cret"
+    gateway = HotcellRemote::Service.gateway
+    ENV["HOTCELL_OPERATIONS"] = original
+    ENV.delete("HOTCELL_REMOTE_SECRET")
+
+    @server = Puma::Server.new(gateway, nil, min_threads: 1, max_threads: 2, log_writer: Puma::LogWriter.null)
+    url = "http://127.0.0.1:#{@server.add_tcp_listener('127.0.0.1', 0).addr[1]}"
+    @server.run
+
+    HotCell.register "remote", dir: "/hotcell-remote/remote", transport: HotcellRemote::Transports::Http.new(url, secret: "s3cret")
+    HotCell.register "wrong-secret", dir: "/hotcell-remote/wrong-secret", transport: HotcellRemote::Transports::Http.new(url, secret: "wrong")
   end
 
   teardown do
+    @server&.stop(true)
     HotcellRemote::Service.stop
     FileUtils.rm_f(@neighbor) if @neighbor
+  end
+
+  test "runs operations in the cell" do
+    with_files do |input, output, output_path|
+      assert_equal({ times: 2 }, client("remote", "text.reverse").perform_in_hotcell(input, output, { times: 2 }))
+      assert_equal "cbacba", File.read(output_path)
+    end
+
+    with_files do |input|
+      assert_equal({ bytes: 3 }, client("remote", "text.count").perform_in_hotcell(input, []))
+    end
+  end
+
+  test "answers with the cell's own failures" do
+    with_files do |input|
+      error = assert_raises(HotCell::PermanentFailure) { client("remote", "text.unreadable").perform_in_hotcell(input, []) }
+      assert_equal "unreadable", error.hot_cell_failure.code
+    end
+  end
+
+  test "relays control requests" do
+    assert_includes HotCell.cell("remote").describe.fetch(:operations), "text.reverse"
+  end
+
+  test "refuses a request with the wrong secret" do
+    with_files do |input|
+      error = assert_raises(HotCell::PermanentFailure) { client("wrong-secret", "text.count").perform_in_hotcell(input, []) }
+      assert_equal "invalid", error.hot_cell_failure.code
+    end
   end
 
   test "starts the cell without sweeping the shared temporary directory" do
@@ -30,30 +73,5 @@ class HotCellTest < ActiveSupport::TestCase
     HotcellRemote::Service.stop
 
     assert_raises(Errno::ESRCH) { Process.kill(0, pid) }
-  end
-
-  test "runs operations in the cell" do
-    reverse = @gateway.post("/ops/text.reverse", input: "abc", "HTTP_HOTCELL_REMOTE_PAYLOAD" => '{"times":2}')
-    assert_equal [200, "cbacba", { "times" => 2 }], [reverse.status, reverse.body, JSON.parse(reverse.headers["hotcell-remote-result"])]
-
-    count = @gateway.post("/ops/text.count", input: "abc")
-    assert_equal [200, { "bytes" => 3 }], [count.status, JSON.parse(count.body)]
-  end
-
-  test "reports a failed tool as unprocessable" do
-    response = @gateway.post("/ops/text.fail", input: "abc")
-
-    assert_equal 422, response.status
-    assert_match(/unreadable/, JSON.parse(response.body)["error"])
-  end
-
-  private
-
-  def with_env(values)
-    original = values.keys.to_h { |key| [key, ENV.fetch(key, nil)] }
-    values.each { |key, value| ENV[key] = value }
-    yield
-  ensure
-    original.each { |key, value| ENV[key] = value }
   end
 end

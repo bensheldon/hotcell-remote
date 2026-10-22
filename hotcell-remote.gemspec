@@ -11,11 +11,10 @@ Gem::Specification.new do |spec|
   spec.homepage = "https://github.com/bensheldon/hotcell-remote"
   spec.license = "MIT"
 
-  spec.files = Dir["lib/**/*", "exe/**/*", "examples/**/*", "README.md", "LICENSE"]
-  spec.bindir = "exe"
-  spec.executables = ["hotcell-remote-cell"]
+  spec.files = Dir["lib/**/*", "examples/**/*", "README.md", "LICENSE"]
 
   spec.required_ruby_version = ">= 3.3"
+  spec.add_dependency "hotcell-client", ">= 1.2"
   spec.add_dependency "rack", ">= 3"
   spec.metadata["rubygems_mfa_required"] = "true"
   spec.metadata["source_code_uri"] = spec.homepage

@@ -1,15 +1,15 @@
 # frozen_string_literal: true
 
 module HotcellActiveStorage
-  # Generates variants with the image.transform operation, in place of ActiveStorage::Transformers::Vips.
+  # Generates variants in the service, in place of ActiveStorage::Transformers::Vips.
   class Transformer < ActiveStorage::Transformers::Transformer
+    include Files
+
     private
 
     def process(file, format:)
-      response = HotcellRemote.perform("image.transform", file, format: format.to_s, operations: operations)
-      Tempfile.new(["hotcell_remote", ".#{format}"], binmode: true).tap do |tempfile|
-        tempfile.write(response.output)
-        tempfile.rewind
+      output_tempfile(format) do |output|
+        with_input(file) { |input| TransformImage.perform_in_hotcell(input, output, { format: format.to_s, operations: }) }
       end
     end
 

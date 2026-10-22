@@ -4,25 +4,31 @@ require "test_helper"
 require "open3"
 
 class EngineTest < ActiveSupport::TestCase
-  test "runs operations in process in the test environment, without a URL" do
-    assert HotcellRemote.inline
-    assert_nil HotcellRemote.url
-    assert_instance_of HotcellRemote::Transports::Rack, HotcellRemote.transport
+  test "runs requests in process in the test environment, without a URL" do
+    assert_instance_of HotcellRemote::Transports::Inline, HotCell.cell("text").transport
   end
 
-  test "never loads or runs operations in process in production" do
-    script = <<~RUBY
-      require_relative "test/dummy/config/environment"
-      print HotcellRemote.operations.size, " "
-      begin
-        HotcellRemote.perform("text.count", StringIO.new("abc"))
-      rescue HotcellRemote::ConfigurationError
-        print "refused"
-      end
-    RUBY
-    output, status = Open3.capture2e({ "RAILS_ENV" => "production" }, "ruby", "-Ilib", "-e", script, chdir: File.expand_path("..", __dir__))
+  test "refuses to boot in production without a URL" do
+    output, status = boot_production
+
+    assert_not status.success?
+    assert_match(/HotcellRemote.url is not set/, output)
+  end
+
+  test "sends requests to the service in production, without loading the operations" do
+    output, status = boot_production("HOTCELL_REMOTE_URL" => "http://hotcell-remote.test")
 
     assert status.success?, output
-    assert_equal "0 refused", output
+    assert_equal "HotcellRemote::Transports::Http nil", output
+  end
+
+  private
+
+  def boot_production(env = {})
+    script = <<~RUBY
+      require_relative "test/dummy/config/environment"
+      print HotCell.cell("text").transport.class, " ", defined?(TextOperations).inspect
+    RUBY
+    Open3.capture2e({ "RAILS_ENV" => "production" }.merge(env), "ruby", "-Ilib", "-e", script, chdir: File.expand_path("..", __dir__))
   end
 end

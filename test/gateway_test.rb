@@ -1,24 +1,28 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "hotcell_remote/gateway"
 require "rack/mock_request"
 
 class GatewayTest < ActiveSupport::TestCase
-  def gateway(**) = Rack::MockRequest.new(HotcellRemote::Gateway.new(executor: HotcellRemote::Executors::Inline.new, **))
-
-  test "answers health checks without the access secret" do
-    assert_equal 200, gateway(access_secret: "s3cret").get("/up").status
+  def gateway(secret: nil)
+    Rack::MockRequest.new(HotcellRemote::Gateway.new(HotCell::Cell.new("cell", dir: "/nonexistent"), secret:))
   end
 
-  test "requires the access secret when it has one" do
-    assert_equal 401, gateway(access_secret: "s3cret").post("/ops/text.count", input: "abc").status
-    assert_equal 401, gateway(access_secret: "s3cret").post("/ops/text.count", input: "abc", "HTTP_AUTHORIZATION" => "Bearer wrong").status
-    assert_equal 200, gateway(access_secret: "s3cret").post("/ops/text.count", input: "abc", "HTTP_AUTHORIZATION" => "Bearer s3cret").status
+  test "answers health checks without the secret" do
+    assert_equal 200, gateway(secret: "s3cret").get("/up").status
   end
 
-  test "rejects a payload that is not a JSON object" do
-    response = gateway.post("/ops/text.reverse", input: "abc", "HTTP_HOTCELL_REMOTE_PAYLOAD" => "[1]")
+  test "requires the secret when it has one" do
+    assert_equal 401, gateway(secret: "s3cret").post("/work").status
+    assert_equal 401, gateway(secret: "s3cret").post("/work", "HTTP_AUTHORIZATION" => "Bearer wrong").status
+  end
 
-    assert_equal 400, response.status
+  test "answers with Hot Cell's own failure when the cell is unreachable" do
+    line = HotCell::Request.new(op: "text.count").to_line
+    response = gateway.post("/work", params: { "request" => line })
+
+    assert_equal 200, response.status
+    assert_equal "unavailable", HotCell::Response.parse(response.body.lines.first).failure.code
   end
 end

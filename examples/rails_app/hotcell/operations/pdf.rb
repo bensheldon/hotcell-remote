@@ -1,60 +1,46 @@
 # frozen_string_literal: true
 
 module PdfOperations
-  class Info < HotcellRemote::Operation
+  class Info < HotCell::Operation
     operation "pdf.info"
-    result_only
 
-    def perform(input, _output)
-      fields = run("pdfinfo", input).lines.to_h { |line| line.split(":", 2).map(&:strip) }
-      width, height = fields["Page size"].to_s.scan(/[\d.]+/).first(2).map(&:to_f)
+    def perform(inputs, _outputs)
+      result = run_tool("pdfinfo", inputs.first.fd_path, pass: [inputs.first.to_io])
+      raise HotCell::UnreadableInput, result.err unless result.ok?
 
-      { pages: Integer(fields.fetch("Pages")), encrypted: fields["Encrypted"].to_s.start_with?("yes"), page_size: [width, height] }
-    end
-  end
-
-  class Text < HotcellRemote::Operation
-    operation "pdf.text"
-    result_only
-
-    def perform(input, _output, first_page: 1, last_page: nil)
-      command = ["pdftotext", "-layout", "-enc", "UTF-8", "-f", Integer(first_page)]
-      command += ["-l", Integer(last_page)] if last_page
-      pages = run(*command, input, "-").split("\f")
-      pages.pop if pages.last&.strip&.empty?
-
-      { pages: }
+      fields = result.out.lines.to_h { |line| line.split(":", 2).map(&:strip) }
+      { pages: Integer(fields.fetch("Pages")) }
     end
   end
 
   # Copies one page into its own PDF.
-  class Page < HotcellRemote::Operation
+  class Page < HotCell::Operation
     operation "pdf.page"
 
-    def perform(input, output, page:)
+    def perform(inputs, outputs, page:)
       page = Integer(page)
-      staged(output) do |dir|
-        run("pdfseparate", "-f", page, "-l", page, input, File.join(dir, "page-%d.pdf"))
-        File.join(dir, "page-#{page}.pdf")
-      end
+      output = outputs.first
+      result = run_tool("pdfseparate", "-f", page.to_s, "-l", page.to_s, inputs.first.fd_path, output.path(extension: "%d.pdf"),
+                        pass: [inputs.first.to_io])
+      raise HotCell::UnreadableInput, result.err unless result.ok?
 
-      { content_type: "application/pdf" }
+      output.adopt(output.path(extension: "#{page}.pdf"))
+      {}
     end
   end
 
-  class RenderPage < HotcellRemote::Operation
+  # Draws one page as a PNG.
+  class RenderPage < HotCell::Operation
     operation "pdf.render_page"
 
-    FORMATS = { "jpeg" => "jpg", "png" => "png" }.freeze
+    def perform(inputs, outputs, page: 1, resolution: 72)
+      output = outputs.first
+      result = run_tool("pdftoppm", "-f", page.to_s, "-l", page.to_s, "-r", resolution.to_s, "-png", "-singlefile",
+                        inputs.first.fd_path, output.path, pass: [inputs.first.to_io])
+      raise HotCell::UnreadableInput, result.err unless result.ok?
 
-    def perform(input, output, page: 1, resolution: 150, format: "jpeg")
-      extension = FORMATS.fetch(format) { raise ArgumentError, "format must be one of #{FORMATS.keys.join(', ')}" }
-      staged(output) do |dir|
-        run("pdftoppm", "-f", Integer(page), "-l", Integer(page), "-r", Integer(resolution), "-#{format}", "-singlefile", input, File.join(dir, "page"))
-        File.join(dir, "page.#{extension}")
-      end
-
-      { content_type: "image/#{format}" }
+      output.adopt(output.path(extension: "png"))
+      {}
     end
   end
 end

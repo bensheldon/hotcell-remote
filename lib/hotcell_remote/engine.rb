@@ -6,15 +6,16 @@ module HotcellRemote
 
     config.hotcell_remote = ActiveSupport::OrderedOptions.new
     config.hotcell_remote.url = ENV.fetch("HOTCELL_REMOTE_URL", nil)
-    config.hotcell_remote.access_secret = ENV.fetch("HOTCELL_REMOTE_SECRET", nil)
+    config.hotcell_remote.secret = ENV.fetch("HOTCELL_REMOTE_SECRET", nil)
     config.hotcell_remote.operations_path = nil
 
-    # Class names to install in Active Storage, e.g. a transformer that calls the app's own operations.
+    # Class names to install in Active Storage, e.g. a transformer whose client calls the application's cell.
     config.hotcell_remote.active_storage = ActiveSupport::OrderedOptions.new
 
-    initializer "hotcell_remote.configure" do |app|
+    # Before the application's initializers, which register its cells.
+    initializer "hotcell_remote.configure", before: :load_config_initializers do |app|
       HotcellRemote.url = app.config.hotcell_remote.url
-      HotcellRemote.access_secret = app.config.hotcell_remote.access_secret
+      HotcellRemote.secret = app.config.hotcell_remote.secret
       HotcellRemote.inline = Rails.env.local?
       HotcellRemote.operations_path = app.config.hotcell_remote.operations_path || app.root.join("hotcell/operations")
     end

@@ -2,59 +2,33 @@
 
 require "test_helper"
 
+# In test, requests run in process, through the same Hot Cell clients and codes as the service.
 class HotcellRemoteTest < ActiveSupport::TestCase
-  def input = StringIO.new("abc")
-
-  test "returns the file an operation writes, with its result" do
-    response = HotcellRemote.perform("text.reverse", input, times: 2)
-
-    assert_equal "cbacba", response.output
-    assert_equal({ "times" => 2 }, response.result)
+  test "runs an operation that writes an output" do
+    with_files do |input, output, output_path|
+      assert_equal({ times: 2 }, client("text", "text.reverse").perform_in_hotcell(input, output, { times: 2 }))
+      assert_equal "cbacba", File.read(output_path)
+    end
   end
 
-  test "returns only the result of a result-only operation" do
-    response = HotcellRemote.perform("text.count", input)
-
-    assert_nil response.output
-    assert_equal({ "bytes" => 3 }, response.result)
+  test "runs an operation that only returns a result, with a tool" do
+    with_files do |input|
+      assert_equal({ bytes: 3 }, client("text", "text.count").perform_in_hotcell(input, []))
+    end
   end
 
-  test "raises a permanent error when a tool fails" do
-    error = assert_raises(HotcellRemote::PermanentError) { HotcellRemote.perform("text.fail", input) }
-    assert_match(/false failed/, error.message)
+  test "raises a permanent failure for an unreadable input" do
+    with_files do |input|
+      error = assert_raises(HotCell::PermanentFailure) { client("text", "text.unreadable").perform_in_hotcell(input, []) }
+      assert_equal "unreadable", error.hot_cell_failure.code
+    end
   end
 
-  test "raises a permanent error for a bad argument" do
-    error = assert_raises(HotcellRemote::PermanentError) { HotcellRemote.perform("text.reverse", input, size: 2) }
-    assert_equal "unknown keyword: size", error.message
-  end
-
-  test "raises a permanent error for an unknown operation" do
-    error = assert_raises(HotcellRemote::PermanentError) { HotcellRemote.perform("text.unknown", input) }
-    assert_equal "Unknown operation text.unknown", error.message
-  end
-
-  test "calls registration callbacks for operations defined before and after" do
-    registered = []
-    callback = ->(operation) { registered << operation.operation }
-    HotcellRemote.on_register(&callback)
-    later = Class.new(HotcellRemote::Operation) { operation "text.later" }
-
-    assert_includes registered, "text.reverse"
-    assert_includes registered, "text.later"
-  ensure
-    HotcellRemote.registration_callbacks.delete(callback)
-    HotcellRemote.operations.delete(later.operation) if later
-  end
-
-  test "refuses to run in process unless allowed" do
-    original = HotcellRemote.transport
-    HotcellRemote.transport = nil
-    HotcellRemote.inline = false
-
-    assert_raises(HotcellRemote::ConfigurationError) { HotcellRemote.perform("text.count", input) }
-  ensure
-    HotcellRemote.inline = true
-    HotcellRemote.transport = original
+  # Transient, as in Hot Cell: an operation that the cell doesn't have yet usually means a deploy in progress.
+  test "raises a transient failure for an unknown operation" do
+    with_files do |input|
+      error = assert_raises(HotCell::TransientFailure) { client("text", "text.unknown").perform_in_hotcell(input, []) }
+      assert_equal "unsupported", error.hot_cell_failure.code
+    end
   end
 end

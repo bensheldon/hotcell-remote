@@ -2,31 +2,30 @@
 
 module TextOperations
   # Writes the input reversed, repeated +times+.
-  class Reverse < HotcellRemote::Operation
+  class Reverse < HotCell::Operation
     operation "text.reverse"
 
-    def perform(input, output, times: 1)
-      File.binwrite(output, File.binread(input).reverse * times)
+    def perform(inputs, outputs, times: 1)
+      File.binwrite(outputs.first.fd_path, File.binread(inputs.first.fd_path).reverse * times)
       { times: }
     end
   end
 
-  # Counts the input's bytes with a tool, which must be able to read the input's path.
-  class Count < HotcellRemote::Operation
+  # Counts the input's bytes with a tool, which receives the input's descriptor.
+  class Count < HotCell::Operation
     operation "text.count"
-    result_only
 
-    def perform(input, _output)
-      { bytes: Integer(run("wc", "-c", input).split.first) }
+    def perform(inputs, _outputs)
+      result = run_tool("wc", "-c", inputs.first.fd_path, pass: [inputs.first.to_io])
+      { bytes: Integer(result.out.split.first) }
     end
   end
 
-  class Fail < HotcellRemote::Operation
-    operation "text.fail"
-    result_only
+  class Unreadable < HotCell::Operation
+    operation "text.unreadable"
 
-    def perform(_input, _output)
-      run("false")
+    def perform(_inputs, _outputs)
+      raise HotCell::UnreadableInput, "not text"
     end
   end
 end

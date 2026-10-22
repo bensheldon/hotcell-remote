@@ -1,78 +1,71 @@
 # frozen_string_literal: true
 
 require "rack"
-require "tmpdir"
+require "hot_cell/client"
+require "hotcell_remote"
 
 module HotcellRemote
-  # The HTTP interface to operations: POST /ops/<operation> with the input file as the body and the payload
-  # as JSON in the Hotcell-Remote-Payload header. An operation that writes a file answers with those bytes and its
-  # result in the Hotcell-Remote-Result header; one that doesn't answers with its result as JSON.
+  # The service's HTTP API. It passes each request to the local Hot Cell, unchanged: the request line and the
+  # inputs from the application, and the response line and the outputs back. It never parses an input, and
+  # the cell answers for everything else, including operations that don't exist and payloads that don't fit.
   #
-  # With an access secret, every request but GET /up must send it as "Authorization: Bearer <secret>".
-  #
-  # The gateway only streams the body to disk; it never decodes it. Decoding happens in the executor.
+  #   POST /work      a request for an operation
+  #   POST /control   a describe or metrics request
+  #   GET  /up        a health check, which needs no secret
   class Gateway
-    MAX_INPUT_BYTES = 100 * 1024 * 1024
-    PAYLOAD_HEADER = "Hotcell-Remote-Payload"
-    RESULT_HEADER = "hotcell-remote-result"
-
-    def initialize(executor:, access_secret: nil)
-      @executor = executor
-      @access_secret = access_secret.to_s.strip.empty? ? nil : access_secret
+    def initialize(cell, secret: nil)
+      @cell = cell
+      @secret = secret.to_s.strip.empty? ? nil : secret
+      @transport = HotCell::Transport::Socket.new
     end
 
     def call(env)
       request = ::Rack::Request.new(env)
       return [200, { "content-type" => "text/plain" }, ["ok"]] if request.get? && request.path_info == "/up"
-      return error(401, "Unauthorized") unless authorized?(request)
+      return [401, { "content-type" => "text/plain" }, ["unauthorized"]] unless authorized?(request)
+      return [404, { "content-type" => "text/plain" }, ["not found"]] unless request.post?
 
-      operation = request.path_info.delete_prefix("/ops/")
-      return error(404, "Unknown operation #{operation}") unless request.post? && HotcellRemote.operations.key?(operation)
-
-      payload = JSON.parse(request.get_header("HTTP_#{PAYLOAD_HEADER.upcase.tr('-', '_')}") || "{}")
-      raise ArgumentError, "payload must be a JSON object" unless payload.is_a?(Hash)
-
-      HotcellRemote.operations.fetch(operation).verify_payload!(payload)
-
-      Dir.mktmpdir("hotcell_remote") do |dir|
-        input = File.join(dir, "input")
-        output = File.join(dir, "output")
-        receive(request.body, input)
-        File.write(output, "")
-
-        result = @executor.call(operation, input, output, payload)
-        if File.empty?(output)
-          [200, { "content-type" => "application/json" }, [JSON.generate(result)]]
-        else
-          [200, { "content-type" => "application/octet-stream", RESULT_HEADER => JSON.generate(result, ascii_only: true) }, [File.binread(output)]]
-        end
+      case request.path_info
+      when WORK_PATH then work(request)
+      when CONTROL_PATH then answer(@transport.call(@cell, line(request), [], socket: @cell.control_socket, timeout: @cell.control_timeout), [])
+      else [404, { "content-type" => "text/plain" }, ["not found"]]
       end
-    rescue JSON::ParserError, ArgumentError => e
-      error(400, e.message)
-    rescue PermanentError => e
-      error(422, e.message)
-    rescue TransientError => e
-      error(503, e.message)
     end
 
     private
 
     def authorized?(request)
-      @access_secret.nil? || ::Rack::Utils.secure_compare(request.get_header("HTTP_AUTHORIZATION").to_s, "Bearer #{@access_secret}")
+      @secret.nil? || ::Rack::Utils.secure_compare(request.get_header("HTTP_AUTHORIZATION").to_s, "#{SECRET_SCHEME} #{@secret}")
     end
 
-    def receive(body, path)
-      File.open(path, "wb") do |file|
-        while (chunk = body.read(64 * 1024))
-          raise PermanentError, "input is larger than #{MAX_INPUT_BYTES} bytes" if file.pos + chunk.bytesize > MAX_INPUT_BYTES
+    def line(request)
+      request.POST.fetch("request").to_s
+    end
 
-          file.write(chunk)
-        end
+    def work(request)
+      line = line(request)
+      parsed = HotCell::Request.parse(line)
+      uploads = Array.new(parsed.inputs) { |index| request.POST.fetch("input#{index}").fetch(:tempfile) }
+
+      Dir.mktmpdir("hotcell-remote") do |dir|
+        inputs = uploads.map { |upload| File.open(upload.path, "rb") }
+        outputs = Array.new(parsed.outputs) { |index| File.open(File.join(dir, "output-#{index}"), "wb") }
+        descriptors = inputs.map { |io| HotCell::Input.new(io) } + outputs.map { |io| HotCell::Output.new(io) }
+
+        answer(@transport.call(@cell, line, descriptors), outputs.map(&:path))
+      ensure
+        (inputs.to_a + outputs.to_a).each(&:close)
       end
+    rescue HotCell::MessageError, KeyError => e
+      answer(HotCell::Response.failed(HotCell::Failure.for("invalid", e)), [])
     end
 
-    def error(status, message)
-      [status, { "content-type" => "application/json" }, [JSON.generate(error: message)]]
+    # The response line, then each output's bytes. A failed request carries no outputs.
+    def answer(response, output_paths)
+      outputs = response.ok? ? output_paths.map { |path| File.binread(path) } : []
+      headers = { "content-type" => "application/octet-stream", OUTPUT_SIZES_HEADER => outputs.map(&:bytesize).join(",") }
+
+      [200, headers, [response.to_line, *outputs]]
     end
   end
 end
