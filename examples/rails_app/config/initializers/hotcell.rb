@@ -4,8 +4,6 @@ require "tempfile"
 require "active_storage/transformers/transformer"
 require "active_storage/analyzer/image_analyzer"
 
-Rails.application.config.active_storage.variant_processor = :disabled
-
 module HotCellClients
   class CountWords < HotCell::Client
     hotcell "media"
@@ -27,11 +25,6 @@ module HotCellClients
     operation "active_storage.transformers.image.vips"
   end
 
-  def self.configure_active_storage
-    ActiveStorage.variant_transformer = HotCellActiveStorage::Transformer
-    ActiveStorage.analyzers = [HotCellActiveStorage::ImageAnalyzer]
-    ActiveStorage.previewers = [HotCellActiveStorage::PdfPreviewer]
-  end
 end
 
 module HotCellImages

@@ -145,15 +145,21 @@ bindings and adapters in [its Hot Cell initializer](examples/rails_app/config/in
 bindings use upstream's operation names and payloads; they do not implement image processing. Custom PDF
 page counting and extraction are application operations because upstream's previewer does not provide them.
 
-The example's application class only schedules the adapter configuration after Rails' defaults:
+Configure Active Storage in `config/application.rb`, applying adapters after Rails' defaults:
 
 ```ruby
+config.active_storage.variant_processor = :disabled
+
 initializer "application.hotcell", after: "active_storage.configs" do
-  config.after_initialize { HotCellClients.configure_active_storage }
+  config.after_initialize do
+    ActiveStorage.variant_transformer = HotCellActiveStorage::Transformer
+    ActiveStorage.analyzers = [HotCellActiveStorage::ImageAnalyzer]
+    ActiveStorage.previewers = [HotCellActiveStorage::PdfPreviewer]
+  end
 end
 ```
 
-All client declarations, descriptor helpers, and Rails 8.1 adapter settings are in the initializer. Snapper-style
+Client declarations, descriptor helpers, and Rails 8.1 adapter classes are in the Hot Cell initializer. Snapper-style
 configuration uses only the remote image analyzer and no previewers; the example also demonstrates a remote PDF
 previewer. Neither needs local video or audio analyzers. When upgrading to Rails 8.2, use upstream's client
 adapters directly.
