@@ -24,7 +24,6 @@ module HotCellClients
     hotcell "media"
     operation "active_storage.transformers.image.vips"
   end
-
 end
 
 module HotCellImages
