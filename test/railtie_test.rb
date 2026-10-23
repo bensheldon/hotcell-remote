@@ -3,7 +3,7 @@
 require "test_helper"
 require "open3"
 
-class EngineTest < ActiveSupport::TestCase
+class RailtieTest < ActiveSupport::TestCase
   test "runs requests in process in the test environment, without a URL" do
     assert_instance_of HotCell::Remote::Transports::Inline, HotCell.cell("text").transport
   end

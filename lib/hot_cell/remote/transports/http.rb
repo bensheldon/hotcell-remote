@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "net/http"
+require "timeout"
 
 module HotCell
   module Remote
@@ -9,6 +10,8 @@ module HotCell
       # bytes go up, and the response line and the outputs' bytes come back. Hot Cell's client does everything
       # else, as it does with its own socket transport.
       class Http
+        class DeadlineExceeded < Timeout::Error; end
+
         def initialize(url, secret: nil)
           @uri = URI(url)
           @secret = secret
@@ -17,18 +20,19 @@ module HotCell
         def call(cell, line, descriptors, socket: cell.work_socket, timeout: cell.timeout)
           control = socket == cell.control_socket
           inputs, outputs = descriptors.partition { |descriptor| descriptor.is_a?(HotCell::Input) }
-          # The service sends a newline while the cell works, so read_timeout bounds only each read, and this
-          # deadline bounds the whole answer.
-          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-
-          post(control ? CONTROL_PATH : WORK_PATH, line, inputs, timeout) do |response|
-            case response.code
-            when "200" then receive(response, outputs.map(&:to_io), deadline)
-            when "401" then failed("invalid", "the service refused the request: #{response.body}")
-            else failed("unavailable", "the service answered #{response.code}")
+          Timeout.timeout(timeout, DeadlineExceeded) do
+            post(control ? CONTROL_PATH : WORK_PATH, line, inputs, timeout) do |response|
+              response.read_body { nil } unless response.code == "200"
+              case response.code
+              when "200" then receive(response, outputs.map(&:to_io))
+              when "401" then failed("invalid", "the service refused the request")
+              else failed("unavailable", "the service answered #{response.code}")
+              end
             end
           end
-        rescue SystemCallError, IOError, SocketError, Timeout::Error, OpenSSL::SSL::SSLError => e
+        rescue Timeout::Error => e
+          failed("timeout", e)
+        rescue HotCell::MessageError, Net::HTTPBadResponse, SystemCallError, IOError, SocketError, OpenSSL::SSL::SSLError => e
           failed("unavailable", e)
         end
 
@@ -42,6 +46,7 @@ module HotCell
           request.set_form(form, "multipart/form-data")
 
           Net::HTTP.start(@uri.host, @uri.port, use_ssl: @uri.scheme == "https", open_timeout: 5, read_timeout: timeout) do |http|
+            http.max_retries = 0
             result = nil
             http.request(request) { |response| result = yield(response) }
             result
@@ -50,16 +55,10 @@ module HotCell
 
         # Skips the keepalive newlines, then reads the response line, the outputs' sizes, and each output's bytes,
         # which it writes straight into the outputs.
-        def receive(response, outputs, deadline)
+        def receive(response, outputs)
           reader = Reader.new(outputs)
-          response.read_body do |chunk|
-            raise Timeout::Error, "the service did not answer in time" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-
-            reader << chunk
-          end
-          reader.response || failed("unavailable", "the service's answer ended early")
-        rescue Timeout::Error => e
-          failed("timeout", e)
+          response.read_body { |chunk| reader << chunk }
+          reader.response
         end
 
         def failed(code, detail)
@@ -71,31 +70,55 @@ module HotCell
           def initialize(outputs)
             @outputs = outputs
             @buffer = +"".b
-            @line = nil
+            @response = nil
             @sizes = nil
           end
 
           def <<(chunk)
             @buffer << chunk.b
-            @buffer = @buffer.sub(/\A\n+/, "") if @line.nil?
-            @line ||= take_line
-            if @line && @sizes.nil? && (sizes = take_line)
-              @sizes = sizes.strip.split(",").map { |size| Integer(size) }
+            unless @response
+              @buffer.sub!(/\A\n+/, "")
+              line = take_line
+              return unless line
+
+              @response = HotCell::Response.parse(line.force_encoding(Encoding::UTF_8))
             end
-            write_outputs if @sizes
+            if @sizes.nil?
+              line = take_line
+              return unless line
+
+              read_sizes(line.chomp)
+            end
+            write_outputs
+            raise HotCell::MessageError, "bytes follow the service's answer" unless @buffer.empty?
           end
 
           def response
-            return nil unless @line && @sizes && @sizes.empty?
+            raise HotCell::MessageError, "the service's answer ended early" unless @response && @sizes == []
 
-            HotCell::Response.parse(@line)
+            @response
           end
 
           private
 
           def take_line
-            index = @buffer.index("\n") or return nil
-            @buffer.slice!(0..index)
+            index = @buffer.index("\n")
+            raise HotCell::MessageError, "the service's response line is too long" if (index ? index + 1 : @buffer.bytesize) > HotCell::MAX_RESPONSE_BYTES
+
+            @buffer.slice!(0..index) if index
+          end
+
+          def read_sizes(line)
+            raise HotCell::MessageError, "invalid output sizes" unless line.empty? || /\A[0-9]+(?:,[0-9]+)*\z/.match?(line)
+
+            parts = line.empty? ? [] : line.split(",")
+            raise HotCell::MessageError, "output sizes exceed the protocol bounds" if parts.size > HotCell::MAX_DESCRIPTORS || parts.any? { |size| size.size > 19 }
+
+            sizes = parts.map { |size| Integer(size, 10) }
+            expected = @response.ok? ? @outputs.size : 0
+            raise HotCell::MessageError, "output sizes do not match the request" unless sizes.size == expected && sizes.all? { |size| size <= (2**63) - 1 }
+
+            @sizes = sizes
           end
 
           def write_outputs
@@ -111,7 +134,7 @@ module HotCell
 
           def finish_output
             @sizes.shift
-            @outputs.shift&.flush
+            @outputs.shift.flush
           end
         end
       end

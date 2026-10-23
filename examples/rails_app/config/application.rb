@@ -15,9 +15,10 @@ module ExampleApp
     config.load_defaults 8.1
     config.autoload_lib(ignore: %w[tasks])
 
-    # The application doesn't process images itself; config/initializers/active_storage.rb routes Active Storage
-    # through the service instead.
-    config.active_storage.variant_processor = :disabled
+    initializer "application.hotcell", after: "active_storage.configs" do
+      config.after_initialize { HotCellClients.configure_active_storage }
+    end
+
     config.active_storage.service = Rails.env.test? ? :test : :local
   end
 end

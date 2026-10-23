@@ -21,3 +21,7 @@ Naming/FileName:
 
 Naming/MemoizedInstanceVariableName:
   EnforcedStyleForLeadingUnderscores: required
+
+Style/OneClassPerFile:
+  Exclude:
+    - examples/rails_app/config/initializers/hotcell.rb

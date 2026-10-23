@@ -28,9 +28,7 @@ module TextOperations
       raise HotCell::UnreadableInput, "not text"
     end
   end
-end
 
-module TextOperations
   # Takes +seconds+ before it answers, to hold a request open.
   class Wait < HotCell::Operation
     operation "text.wait"
