@@ -57,4 +57,4 @@ module HotCell
   end
 end
 
-require "hot_cell/remote/engine" if defined?(Rails::Engine)
+require "hot_cell/remote/railtie" if defined?(Rails::Railtie)

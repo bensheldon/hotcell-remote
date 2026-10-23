@@ -4,6 +4,13 @@ require "test_helper"
 
 # In test, requests run in process, through the same Hot Cell clients and codes as the service.
 class HotCellRemoteTest < ActiveSupport::TestCase
+  test "reports supervisor diagnostics as unsupported when running inline" do
+    cell = HotCell.cell("text")
+    response = cell.transport.call(cell, HotCell::Request.new(op: HotCell::METRICS).to_line, [], socket: cell.control_socket)
+
+    assert_equal "unsupported", response.failure.code
+  end
+
   test "runs an operation that writes an output" do
     with_files do |input, output, output_path|
       assert_equal({ times: 2 }, client("text", "text.reverse").perform_in_hotcell(input, output, { times: 2 }))

@@ -15,7 +15,7 @@ module HotCell
         end
 
         def call(cell, line, descriptors, socket: cell.work_socket, timeout: nil) # rubocop:disable Lint/UnusedMethodArgument
-          return HotCell::Response.ok(result: {}) if socket == cell.control_socket
+          return failed("unsupported", "inline transport has no supervisor diagnostics") if socket == cell.control_socket
 
           request = HotCell::Request.parse(line)
           operation = HotCell::Registry.lookup(request.op)

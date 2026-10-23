@@ -14,6 +14,7 @@ end
 
 # The cell, and the gems that the operations use. Development and test run requests in process, for parity.
 group :development, :test, :hotcell do
+  gem "activestorage-hotcell-server", "1.2.0", require: false
   gem "hotcell-server"
   gem "image_processing"
   gem "ruby-vips"
